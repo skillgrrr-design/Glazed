@@ -113,6 +113,9 @@ public class NoSlow extends Module {
 
         // delegate to per-mode handlers for clarity
         switch (mode.get()) {
+            case NCP:
+                handleNCP();
+                break;
             case StrictNCP:
                 handleStrictNCP();
                 break;
@@ -134,13 +137,25 @@ public class NoSlow extends Module {
             case LFCraft:
                 handleLFCraft();
                 break;
-            case NCP:
             default:
                 break;
         }
     }
 
     // --- Mode handlers ----------------------------------------------------------
+    private void handleNCP() {
+        // NCP mode: packet-based approach with inventory slot manipulation
+        if (aggressiveBypass.get()) {
+            // Every tick, send slot change packets to confuse detection
+            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+        } else {
+            // Conservative approach: only send every 4 ticks
+            if (mc.player.age % 4 == 0) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+            }
+        }
+    }
+
     private void handleStrictNCP() {
         if (aggressiveBypass.get()) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
         else if (mc.player.age % 4 == 0) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));

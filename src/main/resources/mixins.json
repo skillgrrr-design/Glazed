@@ -2,7 +2,9 @@
   "required": true,
   "package": "com.ivoryk.mixins",
   "compatibilityLevel": "JAVA_17",
-  "mixins": [],
+  "mixins": [
+    "LivingEntityTravelMixin"
+  ],
   "client": [
     "HandledScreenMixin"
 
