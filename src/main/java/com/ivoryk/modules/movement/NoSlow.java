@@ -106,6 +106,13 @@ public class NoSlow extends Module {
         .build()
     );
 
+    private final meteordevelopment.meteorclient.settings.Setting<Boolean> aggressiveBypass = sgGeneral.add(new BoolSetting.Builder()
+        .name("aggressive-bypass")
+        .description("Enable original aggressive bypass behaviors (packets/velocity). WARNING: more detectable")
+        .defaultValue(true)
+        .build()
+    );
+
     private boolean returnSneak;
 
     public NoSlow() {
@@ -122,10 +129,17 @@ public class NoSlow extends Module {
             returnSneak = false;
         }
 
-        if (mc.player.isUsingItem() && !mc.player.isRiding()) {
+        if (!canNoSlow()) return;
+
+        // at this point, canNoSlow guarantees mc.player != null, using item and not riding
+        
             switch (mode.get()) {
                 case StrictNCP:
-                    mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                    if (aggressiveBypass.get()) {
+                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                    } else {
+                        if (mc.player.age % 4 == 0) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                    }
                     break;
                 case MusteryGrief:
                     if (mc.player.isOnGround() && mc.options.jumpKey.isPressed()) {
@@ -134,60 +148,81 @@ public class NoSlow extends Module {
                     }
                     break;
                 case Grim:
-                    if (mc.player.getActiveHand() == Hand.OFF_HAND) {
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                    } else if (mainHand.get()) {
-                        sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+                    if (aggressiveBypass.get()) {
+                        if (mc.player.getActiveHand() == Hand.OFF_HAND) {
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                        } else if (mainHand.get()) {
+                            sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+                        }
+                    } else {
+                        if (mainHand.get()) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
                     }
                     break;
                 case Matrix:
-                    if (mc.player.isOnGround() && !mc.options.jumpKey.isPressed()) {
-                        mc.player.setVelocity(mc.player.getVelocity().x * 0.3, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.3);
-                    } else if (mc.player.fallDistance > 0.2f) {
+                    if (aggressiveBypass.get()) {
+                        if (mc.player.isOnGround() && !mc.options.jumpKey.isPressed()) {
+                            mc.player.setVelocity(mc.player.getVelocity().x * 0.3, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.3);
+                        } else if (mc.player.fallDistance > 0.2f) {
+                            mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+                        }
+                    } else {
                         mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
                     }
                     break;
                 case GrimNew:
-                    if (mc.player.getActiveHand() == Hand.OFF_HAND) {
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                    } else if (mainHand.get() && (mc.player.getItemUseTime() <= 3 || mc.player.age % 2 == 0)) {
-                        sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+                    if (aggressiveBypass.get()) {
+                        if (mc.player.getActiveHand() == Hand.OFF_HAND) {
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
+                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                        } else if (mainHand.get() && (mc.player.getItemUseTime() <= 3 || mc.player.age % 2 == 0)) {
+                            sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+                        }
+                    } else {
+                        if (mainHand.get() && mc.player.getItemUseTime() <= 3) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
                     }
                     break;
                 case Matrix2:
-                    if (mc.player.isOnGround()) {
-                        if (mc.player.age % 2 == 0) {
-                            mc.player.setVelocity(mc.player.getVelocity().x * 0.5f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.5f);
-                        } else {
-                            mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+                    if (aggressiveBypass.get()) {
+                        if (mc.player.isOnGround()) {
+                            if (mc.player.age % 2 == 0) {
+                                mc.player.setVelocity(mc.player.getVelocity().x * 0.5f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.5f);
+                            } else {
+                                mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+                            }
                         }
+                    } else {
+                        mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
                     }
                     break;
                 case LFCraft:
                     if (mc.player.getItemUseTime() <= 3) {
-                        sendSequencedPacket(id -> new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, mc.player.getBlockPos().up(), Direction.NORTH, id));
+                        if (aggressiveBypass.get()) sendSequencedPacket(id -> new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, mc.player.getBlockPos().up(), Direction.NORTH, id));
                     }
                     break;
                 case NCP:
                 default:
                     break;
             }
-        }
     }
 
     private void sendSequencedPacket(java.util.function.Function<Integer, net.minecraft.network.packet.Packet<?>> packetFactory) {
-        if (mc.getNetworkHandler() != null) {
+        if (mc.getNetworkHandler() == null) return;
+        if (aggressiveBypass.get()) {
+            for (int i = 0; i < 3; i++) mc.getNetworkHandler().sendPacket(packetFactory.apply(i));
+        } else {
             mc.getNetworkHandler().sendPacket(packetFactory.apply(0));
         }
     }
 
     public boolean canNoSlow() {
-        if (mode.get() == Mode.Matrix3)
-            return false;
+        if (mc.player == null || mc.world == null) return false;
+
+        if (!mc.player.isUsingItem() || mc.player.isRiding()) return false;
+
+        if (mc.player.getActiveItem().isEmpty()) return false;
 
         if (!food.get() && mc.player.getActiveItem().getComponents().contains(DataComponentTypes.FOOD))
             return false;
@@ -196,8 +231,8 @@ public class NoSlow extends Module {
             return false;
 
         if (!projectiles.get()
-                && (mc.player.getActiveItem().getItem() == Items.CROSSBOW 
-                || mc.player.getActiveItem().getItem() == Items.BOW 
+                && (mc.player.getActiveItem().getItem() == Items.CROSSBOW
+                || mc.player.getActiveItem().getItem() == Items.BOW
                 || mc.player.getActiveItem().getItem() == Items.TRIDENT))
             return false;
 
@@ -207,9 +242,9 @@ public class NoSlow extends Module {
         if (!mainHand.get() && mc.player.getActiveHand() == Hand.MAIN_HAND)
             return false;
 
-        if ((mc.player.getOffHandStack().getComponents().contains(DataComponentTypes.FOOD) 
+        if ((mc.player.getOffHandStack().getComponents().contains(DataComponentTypes.FOOD)
                 || mc.player.getOffHandStack().getItem() == Items.SHIELD)
-                && (mode.get() == Mode.GrimNew || mode.get() == Mode.Grim) 
+                && (mode.get() == Mode.GrimNew || mode.get() == Mode.Grim)
                 && mc.player.getActiveHand() == Hand.MAIN_HAND)
             return false;
 
