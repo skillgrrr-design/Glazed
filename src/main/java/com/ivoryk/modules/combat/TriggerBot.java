@@ -183,9 +183,17 @@ public class TriggerBot extends Module {
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || !mc.player.isAlive() || PlayerUtils.getGameMode() == GameMode.SPECTATOR) return;
-        if (mc.targetedEntity == null) return;
+        // Only attack when the crosshair raycast hit an entity (hitbox intersection)
+        if (mc.crosshairTarget == null || mc.crosshairTarget.getType() != net.minecraft.util.hit.HitResult.Type.ENTITY) return;
 
-        if (delayCheck() && entityCheck(mc.targetedEntity)) hitEntity(mc.targetedEntity);
+        if (!(mc.crosshairTarget instanceof net.minecraft.util.hit.EntityHitResult)) return;
+
+        net.minecraft.util.hit.EntityHitResult ehr = (net.minecraft.util.hit.EntityHitResult) mc.crosshairTarget;
+        Entity hit = ehr.getEntity();
+
+        if (hit == null) return;
+
+        if (delayCheck() && entityCheck(hit)) hitEntity(hit);
     }
 
     private boolean needCrit(Entity e) {

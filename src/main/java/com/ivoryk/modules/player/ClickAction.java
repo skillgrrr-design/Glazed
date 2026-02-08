@@ -17,15 +17,35 @@ public class ClickAction extends Module {
 
     private final Setting<Boolean> enderpearlEnabled = sgGeneral.add(new BoolSetting.Builder()
         .name("enderpearl-enabled")
-        .description("Enable enderpearl throw on X key")
+        .description("Enable automatic enderpearl throw when bound key is pressed. No default keyset.")
         .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Integer> enderKey = sgGeneral.add(new IntSetting.Builder()
+        .name("ender-keycode")
+        .description("Keycode for enderpearl action (-1 = none)")
+        .defaultValue(-1)
+        .min(-1)
+        .max(350)
+        .visible(enderpearlEnabled::get)
         .build()
     );
 
     private final Setting<Boolean> expEnabled = sgGeneral.add(new BoolSetting.Builder()
         .name("exp-enabled")
-        .description("Enable exp bottle throw on Z key (fast clicks)")
+        .description("Enable automatic exp bottle throw when bound key is pressed. No default keyset.")
         .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Integer> expKey = sgGeneral.add(new IntSetting.Builder()
+        .name("exp-keycode")
+        .description("Keycode for exp action (-1 = none)")
+        .defaultValue(-1)
+        .min(-1)
+        .max(350)
+        .visible(expEnabled::get)
         .build()
     );
 
@@ -49,13 +69,13 @@ public class ClickAction extends Module {
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.world == null) return;
 
-        // Handle Enderpearl (X key)
-        if (enderpearlEnabled.get() && isKeyPressed(GLFW.GLFW_KEY_X)) {
+        // Handle Enderpearl (bound key)
+        if (enderpearlEnabled.get() && enderKey.get() != -1 && isKeyPressed(enderKey.get())) {
             throwEnderpearl();
         }
 
-        // Handle Exp (Z key) with CPS control
-        if (expEnabled.get() && isKeyPressed(GLFW.GLFW_KEY_Z)) {
+        // Handle Exp (bound key) with CPS control
+        if (expEnabled.get() && expKey.get() != -1 && isKeyPressed(expKey.get())) {
             long now = System.currentTimeMillis();
             long delayMs = 1000 / expClicksPerSecond.get();
             if (now - lastExpThrow >= delayMs) {
