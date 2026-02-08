@@ -18,4 +18,3 @@ Notas
 - El addon integra sus módulos en las categorías default de Meteor client
 Licencia
 
-glazed 🙏 no me demandes.

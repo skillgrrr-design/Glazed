@@ -11,7 +11,7 @@
     "homepage": "https://github.com/skillgrrr-design/Glazed",
     "repo": "https://github.com/skillgrrr-design/Glazed"
   },
-  "license": "All Rights Reserved",
+  "license": "MIT",
   "icon": "assets/template/icon.png",
   "environment": "client",
   "entrypoints": {
