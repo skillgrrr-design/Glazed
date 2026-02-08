@@ -88,7 +88,7 @@ public class TriggerBot extends Module {
 
     private final Setting<Boolean> onlyCrits = sgTiming.add(new BoolSetting.Builder()
         .name("only-crits")
-        .description("Attack enemy only if this attack crit after jump.")
+        .description("Attack enemy only when guaranteed critical hit (in air or levitating)")
         .defaultValue(true)
         .build()
     );
@@ -144,29 +144,11 @@ public class TriggerBot extends Module {
     }
 
     private boolean delayCheck() {
-        try {
-            if (onlyCrits.get()) {
-                boolean allowCrit = true;
-                boolean needCrit = false;
-                try {
-                    Class<?> critCls = Class.forName("nekiplay.meteorplus.features.modules.combat.criticals.CriticalsPlus");
-                    Method allow = critCls.getDeclaredMethod("allowCrit");
-                    allowCrit = (Boolean) allow.invoke(null);
-                    try {
-                        Method nc = critCls.getDeclaredMethod("needCrit", Entity.class);
-                        needCrit = (Boolean) nc.invoke(null, mc.targetedEntity);
-                    } catch (Throwable ignored) {}
-                } catch (ClassNotFoundException ignored) {}
-
-                if (!allowCrit && needCrit(mc.targetedEntity)) {
-                    if (ignoreOnlyCritsOnLevitation.get() && !Objects.requireNonNull(mc.player).hasStatusEffect(StatusEffects.LEVITATION)) {
-                        return false;
-                    } else if (!ignoreOnlyCritsOnLevitation.get()) {
-                        return false;
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
+        // Only-crits: Attack only when guaranteed critical (in air or levitating)
+        if (onlyCrits.get()) {
+            boolean hasCrit = !mc.player.isOnGround() || mc.player.hasStatusEffect(StatusEffects.LEVITATION);
+            if (!hasCrit) return false;
+        }
 
         if (smartDelay.get()) return mc.player.getAttackCooldownProgress(0.5f) >= 1;
 
@@ -193,7 +175,9 @@ public class TriggerBot extends Module {
 
         if (hit == null) return;
 
-        if (delayCheck() && entityCheck(hit)) hitEntity(hit);
+        if (delayCheck() && entityCheck(hit)) {
+            hitEntity(hit);
+        }
     }
 
     private boolean needCrit(Entity e) {

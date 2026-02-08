@@ -2,7 +2,6 @@ package com.ivoryk;
 
 import com.ivoryk.modules.combat.*;
 import com.ivoryk.modules.movement.*;
-import com.ivoryk.modules.player.*;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.orbit.EventHandler;
@@ -19,7 +18,6 @@ public class IvoryKAddon extends MeteorAddon {
         Modules.get().add(new AimAssist());
         Modules.get().add(new com.ivoryk.modules.misc.AutoGG());
         Modules.get().add(new NoSlow());
-        Modules.get().add(new ClickAction());
     }
 
     @EventHandler

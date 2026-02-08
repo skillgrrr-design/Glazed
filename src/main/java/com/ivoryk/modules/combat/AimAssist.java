@@ -5,7 +5,6 @@ import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Categories;
-import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import net.minecraft.client.network.ClientPlayerEntity;
@@ -30,6 +29,12 @@ public class AimAssist extends Module {
         FOV
     }
 
+    public enum SmoothType {
+        LINEAR,
+        EXPONENTIAL,
+        SINE
+    }
+
     private final meteordevelopment.meteorclient.settings.Setting<Boolean> enabled = sgGeneral.add(new BoolSetting.Builder()
         .name("enabled")
         .description("Enable aim assist")
@@ -51,21 +56,28 @@ public class AimAssist extends Module {
         .build()
     );
 
+    private final meteordevelopment.meteorclient.settings.Setting<SmoothType> smoothType = sgGeneral.add(new EnumSetting.Builder<SmoothType>()
+        .name("smooth-type")
+        .description("Type of smoothing: LINEAR (direct), EXPONENTIAL (very smooth), SINE (curved)")
+        .defaultValue(SmoothType.EXPONENTIAL)
+        .build()
+    );
+
     private final meteordevelopment.meteorclient.settings.Setting<Double> smoothness = sgGeneral.add(new DoubleSetting.Builder()
         .name("smoothness")
-        .description("Aim smoothness (higher = smoother)")
-        .defaultValue(0.15)
+        .description("Aim smoothness (higher = smoother, lower = faster response)")
+        .defaultValue(0.08)
         .min(0.01)
-        .max(1.0)
+        .max(0.5)
         .build()
     );
 
     private final meteordevelopment.meteorclient.settings.Setting<Double> speed = sgGeneral.add(new DoubleSetting.Builder()
         .name("speed")
         .description("How fast the aim moves (higher = faster)")
-        .defaultValue(1.0)
-        .min(0.1)
-        .max(5.0)
+        .defaultValue(3.0)
+        .min(0.5)
+        .max(10.0)
         .build()
     );
 
@@ -142,26 +154,58 @@ public class AimAssist extends Module {
         float currentYaw = player.getYaw();
         float currentPitch = player.getPitch();
 
-        float smoothness = this.smoothness.get().floatValue();
-        float speedFactor = this.speed.get().floatValue();
-        // combine smoothness and speed, clamp to avoid instant snaps
-        float interp = Math.max(0.01f, Math.min(0.9f, smoothness * speedFactor));
+        // Aplicar interpolación según el tipo seleccionado
+        double smoothness = this.smoothness.get();
+        double speedFactor = this.speed.get();
+
+        float newYaw = currentYaw;
+        float newPitch = currentPitch;
 
         float yawDiff = targetYaw - currentYaw;
         while (yawDiff > 180) yawDiff -= 360;
         while (yawDiff < -180) yawDiff += 360;
 
-        float newYaw = currentYaw + yawDiff * interp;
-
         float pitchDiff = targetPitch - currentPitch;
-        float newPitch = currentPitch + pitchDiff * interp;
+
+        switch (smoothType.get()) {
+            case LINEAR:
+                // Interpolación lineal simple y rápida
+                float linearInterp = (float) (smoothness * speedFactor);
+                linearInterp = Math.max(0.001f, Math.min(0.95f, linearInterp));
+                newYaw = currentYaw + yawDiff * linearInterp;
+                newPitch = currentPitch + pitchDiff * linearInterp;
+                break;
+
+            case EXPONENTIAL:
+                // Exponential decay: muy suave pero responde rápido
+                // Usa potencia exponencial para suavidad orgánica
+                double progress = speedFactor * (1.0 - smoothness);
+                progress = Math.max(0.001, Math.min(0.95, progress));
+                
+                // Aplicar cubo para suavidad extrema: progress^3
+                double eased = progress * progress * progress;
+                newYaw = (float) (currentYaw + yawDiff * eased);
+                newPitch = (float) (currentPitch + pitchDiff * eased);
+                break;
+
+            case SINE:
+                // Interpolación con función seno (smooth curva)
+                double sineProgress = speedFactor * (1.0 - smoothness);
+                sineProgress = Math.max(0.001, Math.min(0.95, sineProgress));
+                
+                // Usar seno para suavidad: -cos(t) * 0.5 + 0.5
+                double sinEased = -Math.cos(sineProgress * Math.PI) * 0.5 + 0.5;
+                newYaw = (float) (currentYaw + yawDiff * sinEased);
+                newPitch = (float) (currentPitch + pitchDiff * sinEased);
+                break;
+        }
 
         newPitch = Math.max(-90, Math.min(90, newPitch));
 
-        // smaller jitter scaled by how smooth we are (less jitter when interp is small)
-        float jitterScale = 0.02f * (1.0f - interp);
+        // Jitter muy pequeño para que se vea más legit
+        float jitterScale = 0.008f;
         newYaw += (random.nextFloat() - 0.5f) * jitterScale;
-        newPitch += (random.nextFloat() - 0.5f) * jitterScale * 0.6f;
+        newPitch += (random.nextFloat() - 0.5f) * jitterScale * 0.4f;
 
         player.setYaw(newYaw);
         player.setPitch(newPitch);
