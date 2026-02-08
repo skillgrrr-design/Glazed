@@ -1,46 +1,23 @@
-# Ivoryk
 
-Addon profesional para Meteor Client 1.21.4. Enfocado en combate, utilidad y bypass.
+Ivoryk Addon
 
 ## Compatibilidad
+- Minecraft: 1.21.4
+- Fabric Loader
+- Meteor Client
 
-- **Minecraft:** 1.21.4
-- **Fabric Loader:** 0.16.7+
-- **Meteor Client:** Latest
+## Objetivo del proyecto
+Addon enfocado en ghost/hvh con módulos discretos, con bypass barato de copilot xD
 
-## Instalación
+Instalación
 
-1. Descarga Meteor Client desde https://meteorclient.com/
-2. Descarga Ivoryk (JAR compilado o código fuente)
-3. Coloca ambos en la carpeta `mods` de tu instalación Minecraft
-4. Inicia con el perfil Fabric y abre Meteor Client (Right Shift)
+1. Descarga Meteor Client 1.21.4 desde https://meteorclient.com/archive y colócalo en la carpeta `mods` de tu instalación de Minecraft (junto con Fabric Loader).
+2. Compila o descarga este addon y coloca su archivo `.jar` en la misma carpeta `mods`.
+3. Inicia Minecraft con el perfil de Fabric y abre Meteor Client con Right Shift.
 
-## Módulos
+Qué se agregó
 
-### Combat
-- **TriggerBot** - Ataque automático a entidades cercanas con configuración de delay
-- **AimAssist** - Asistencia de apuntado suave con opciones FOV y rango
-
-### Movement
-- **NoSlow** - Elimina la ralentización al usar items
-
-### Player
-- **ClickAction** - Lanzamiento rápido de Enderpearls y botellas de XP (keybindeable)
-- **AutoGG** - Mensaje automático al matar jugadores (configurable)
-
-## Características
-
-- ✅ Integración total con GUI de Meteor Client
-- ✅ Módulos completamente configurables
-- ✅ Bajo overhead de rendimiento
-- ✅ Código abierto bajo licencia MIT
-- ✅ Bypass compatible Meteor 1.21.4
-
-## Licencia
-
-MIT License - Libre para modificar, distribuir y usar gratuitamente
-
-## Créditos
-
-Desarrollado con Python/Claude AI
-
+- TriggerBot: ataca entidades configurables al apuntarlas.
+- AimAssist: asistente de apuntado con opciones de suavizado y FOV.
+- NoSlow: evita ralentizaciones al comer
+``` 
