@@ -16,10 +16,19 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.math.Direction;
 
 public class NoSlow extends Module {
+    // Public modes exposed to users
     public enum Mode {
-        NCP, StrictNCP, Matrix, Grim, MusteryGrief, GrimNew, Matrix2, LFCraft, Matrix3
+        NCP,
+        StrictNCP,
+        Matrix,
+        Grim,
+        MusteryGrief,
+        GrimNew,
+        Matrix2,
+        LFCraft
     }
 
+    // --- Configuration / settings -------------------------------------------------
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
     private final meteordevelopment.meteorclient.settings.Setting<Mode> mode = sgGeneral.add(new EnumSetting.Builder<Mode>()
@@ -57,41 +66,6 @@ public class NoSlow extends Module {
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> soulSand = sgGeneral.add(new BoolSetting.Builder()
-        .name("soul-sand")
-        .description("No slow on soul sand")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> honey = sgGeneral.add(new BoolSetting.Builder()
-        .name("honey")
-        .description("No slow on honey")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> slime = sgGeneral.add(new BoolSetting.Builder()
-        .name("slime")
-        .description("No slow on slime")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> ice = sgGeneral.add(new BoolSetting.Builder()
-        .name("ice")
-        .description("No slow on ice")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> sweetBerryBush = sgGeneral.add(new BoolSetting.Builder()
-        .name("sweet-berry-bush")
-        .description("No slow on sweet berry bush")
-        .defaultValue(true)
-        .build()
-    );
-
     private final meteordevelopment.meteorclient.settings.Setting<Boolean> sneak = sgGeneral.add(new BoolSetting.Builder()
         .name("sneak")
         .description("No slow while sneaking")
@@ -106,6 +80,7 @@ public class NoSlow extends Module {
         .build()
     );
 
+    // toggle to restore the original aggressive bypass behavior
     private final meteordevelopment.meteorclient.settings.Setting<Boolean> aggressiveBypass = sgGeneral.add(new BoolSetting.Builder()
         .name("aggressive-bypass")
         .description("Enable original aggressive bypass behaviors (packets/velocity). WARNING: more detectable")
@@ -115,111 +90,147 @@ public class NoSlow extends Module {
 
     private boolean returnSneak;
 
+    // --- Constants ----------------------------------------------------------------
+    private static final int SEQUENCED_PACKET_COUNT = 3;
+
     public NoSlow() {
         super(Categories.Movement, "NoSlow", "No slowdown when using items");
     }
 
+    // --- Main event handler ------------------------------------------------------
     @EventHandler
     private void onTick(TickEvent.Pre event) {
         if (mc.player == null || mc.world == null) return;
 
         if (returnSneak) {
+            // restore sneak state previously set
             mc.options.sneakKey.setPressed(false);
             mc.player.setSprinting(true);
             returnSneak = false;
         }
 
-        if (!canNoSlow()) return;
+        if (!canNoSlow()) return; // central validation gate
 
-        // at this point, canNoSlow guarantees mc.player != null, using item and not riding
-        
-            switch (mode.get()) {
-                case StrictNCP:
-                    if (aggressiveBypass.get()) {
-                        mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                    } else {
-                        if (mc.player.age % 4 == 0) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                    }
-                    break;
-                case MusteryGrief:
-                    if (mc.player.isOnGround() && mc.options.jumpKey.isPressed()) {
-                        mc.options.sneakKey.setPressed(true);
-                        returnSneak = true;
-                    }
-                    break;
-                case Grim:
-                    if (aggressiveBypass.get()) {
-                        if (mc.player.getActiveHand() == Hand.OFF_HAND) {
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                        } else if (mainHand.get()) {
-                            sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
-                        }
-                    } else {
-                        if (mainHand.get()) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
-                    }
-                    break;
-                case Matrix:
-                    if (aggressiveBypass.get()) {
-                        if (mc.player.isOnGround() && !mc.options.jumpKey.isPressed()) {
-                            mc.player.setVelocity(mc.player.getVelocity().x * 0.3, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.3);
-                        } else if (mc.player.fallDistance > 0.2f) {
-                            mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
-                        }
-                    } else {
-                        mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
-                    }
-                    break;
-                case GrimNew:
-                    if (aggressiveBypass.get()) {
-                        if (mc.player.getActiveHand() == Hand.OFF_HAND) {
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
-                            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-                        } else if (mainHand.get() && (mc.player.getItemUseTime() <= 3 || mc.player.age % 2 == 0)) {
-                            sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
-                        }
-                    } else {
-                        if (mainHand.get() && mc.player.getItemUseTime() <= 3) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
-                    }
-                    break;
-                case Matrix2:
-                    if (aggressiveBypass.get()) {
-                        if (mc.player.isOnGround()) {
-                            if (mc.player.age % 2 == 0) {
-                                mc.player.setVelocity(mc.player.getVelocity().x * 0.5f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.5f);
-                            } else {
-                                mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
-                            }
-                        }
-                    } else {
-                        mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
-                    }
-                    break;
-                case LFCraft:
-                    if (mc.player.getItemUseTime() <= 3) {
-                        if (aggressiveBypass.get()) sendSequencedPacket(id -> new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, mc.player.getBlockPos().up(), Direction.NORTH, id));
-                    }
-                    break;
-                case NCP:
-                default:
-                    break;
-            }
+        // delegate to per-mode handlers for clarity
+        switch (mode.get()) {
+            case StrictNCP:
+                handleStrictNCP();
+                break;
+            case MusteryGrief:
+                handleMusteryGrief();
+                break;
+            case Grim:
+                handleGrim();
+                break;
+            case Matrix:
+                handleMatrix();
+                break;
+            case GrimNew:
+                handleGrimNew();
+                break;
+            case Matrix2:
+                handleMatrix2();
+                break;
+            case LFCraft:
+                handleLFCraft();
+                break;
+            case NCP:
+            default:
+                break;
+        }
     }
 
+    // --- Mode handlers ----------------------------------------------------------
+    private void handleStrictNCP() {
+        if (aggressiveBypass.get()) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+        else if (mc.player.age % 4 == 0) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+    }
+
+    private void handleMusteryGrief() {
+        if (mc.player.isOnGround() && mc.options.jumpKey.isPressed()) {
+            mc.options.sneakKey.setPressed(true);
+            returnSneak = true;
+        }
+    }
+
+    private void handleGrim() {
+        if (aggressiveBypass.get()) {
+            if (mc.player.getActiveHand() == Hand.OFF_HAND) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+            } else if (mainHand.get()) {
+                sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+            }
+        } else {
+            if (mainHand.get()) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
+        }
+    }
+
+    private void handleMatrix() {
+        if (aggressiveBypass.get()) {
+            if (mc.player.isOnGround() && !mc.options.jumpKey.isPressed()) {
+                mc.player.setVelocity(mc.player.getVelocity().x * 0.3, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.3);
+            } else if (mc.player.fallDistance > 0.2f) {
+                mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+            }
+        } else {
+            mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+        }
+    }
+
+    private void handleGrimNew() {
+        if (aggressiveBypass.get()) {
+            if (mc.player.getActiveHand() == Hand.OFF_HAND) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 8 + 1));
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot % 7 + 2));
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+            } else if (mainHand.get() && (mc.player.getItemUseTime() <= 3 || mc.player.age % 2 == 0)) {
+                sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+            }
+        } else {
+            if (mainHand.get() && mc.player.getItemUseTime() <= 3) sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
+        }
+    }
+
+    private void handleMatrix2() {
+        if (aggressiveBypass.get()) {
+            if (mc.player.isOnGround()) {
+                if (mc.player.age % 2 == 0) {
+                    mc.player.setVelocity(mc.player.getVelocity().x * 0.5f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.5f);
+                } else {
+                    mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+                }
+            }
+        } else {
+            mc.player.setVelocity(mc.player.getVelocity().x * 0.95f, mc.player.getVelocity().y, mc.player.getVelocity().z * 0.95f);
+        }
+    }
+
+    private void handleLFCraft() {
+        if (mc.player.getItemUseTime() <= 3) {
+            if (aggressiveBypass.get()) sendSequencedPacket(id -> new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, mc.player.getBlockPos().up(), Direction.NORTH, id));
+        }
+    }
+
+    // --- Utilities ---------------------------------------------------------------
     private void sendSequencedPacket(java.util.function.Function<Integer, net.minecraft.network.packet.Packet<?>> packetFactory) {
         if (mc.getNetworkHandler() == null) return;
         if (aggressiveBypass.get()) {
-            for (int i = 0; i < 3; i++) mc.getNetworkHandler().sendPacket(packetFactory.apply(i));
+            for (int i = 0; i < SEQUENCED_PACKET_COUNT; i++) mc.getNetworkHandler().sendPacket(packetFactory.apply(i));
         } else {
             mc.getNetworkHandler().sendPacket(packetFactory.apply(0));
         }
     }
 
+    /**
+     * Central validation for whether NoSlow should run this tick.
+     * Keeps the checks in one place so future refactors (e.g. mixins) can call this.
+     */
     public boolean canNoSlow() {
         if (mc.player == null || mc.world == null) return false;
 
+        // basic use checks
         if (!mc.player.isUsingItem() || mc.player.isRiding()) return false;
 
         if (mc.player.getActiveItem().isEmpty()) return false;
@@ -250,4 +261,13 @@ public class NoSlow extends Module {
 
         return true;
     }
+
+    /*
+     * Important note (technical):
+     * This module manipulates client-side state (packets, local velocity, keys).
+     * On server-authoritative setups the server still controls final movement.
+     * A reliable NoSlow requires intervening in the movement calculation (e.g. mixin into
+     * ClientPlayerEntity#travel / LivingEntity#travel or inject into input processing),
+     * which is beyond this module-only approach. See evaluation and next-steps.
+     */
 }
