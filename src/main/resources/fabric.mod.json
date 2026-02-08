@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "ivoryk",
+  "version": "${version}",
+  "name": "Ivoryk",
+  "description": "Meteor Client Addon for Minecraft 1.21.4",
+  "authors": [
+    "Ivoryk"
+  ],
+  "contact": {
+    "homepage": "https://github.com/skillgrrr-design/Glazed",
+    "repo": "https://github.com/skillgrrr-design/Glazed"
+  },
+  "license": "All Rights Reserved",
+  "icon": "assets/template/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "meteor": [
+      "com.ivoryk.IvoryKAddon"
+    ]
+  },
+  "mixins": [
+    "mixins.json"
+  ],
+  "custom": {
+    "meteor-client:color": "225,25,25"
+  },
+  "depends": {
+    "java": ">=21",
+    "minecraft": [ "${mc_version}" ],
+    "meteor-client": "*"
+  }
+}
