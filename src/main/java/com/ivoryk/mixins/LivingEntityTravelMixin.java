@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 public abstract class LivingEntityTravelMixin {
 
     @ModifyVariable(method = "travel", at = @At("HEAD"), argsOnly = true)
-    private Vec3d modifyTravelVelocity(Vec3d movement) {
+    private Vec3d modifyTravelMovement(Vec3d movement) {
         NoSlow noSlow = (NoSlow) Modules.get().get(NoSlow.class);
         if (noSlow == null || !noSlow.isActive()) {
             return movement;
@@ -22,8 +22,28 @@ public abstract class LivingEntityTravelMixin {
             return movement;
         }
 
-        // Apply NoSlow effect by completely bypassing slowdown
-        // For Grim/strict servers, apply more aggressive velocity restoration
-        return new Vec3d(movement.x * 1.8d, movement.y, movement.z * 1.8d);
+        // NoSlow real: elimina penalización de uso de items sin aumentar velocidad base
+        // Micro-compensación por anticheat según modo (< 5% para ser invisible)
+        double factor = 1.0;
+        
+        switch (noSlow.getMode()) {
+            case Grim:
+            case GrimNew:
+                factor = 1.0;  // Sin compensación: Grim es muy estricto
+                break;
+            case Matrix:
+            case Matrix2:
+                factor = 1.01; // +1% micro-compensación
+                break;
+            case NCP:
+            case StrictNCP:
+                factor = 1.02; // +2% micro-compensación
+                break;
+            default:
+                factor = 1.0;
+        }
+
+        // Aplicar factor solo si no crea anomalía de movimiento
+        return new Vec3d(movement.x * factor, movement.y, movement.z * factor);
     }
 }

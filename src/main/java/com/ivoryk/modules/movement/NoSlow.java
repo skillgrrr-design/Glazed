@@ -97,6 +97,10 @@ public class NoSlow extends Module {
         super(Categories.Movement, "NoSlow", "No slowdown when using items");
     }
 
+    public Mode getMode() {
+        return mode.get();
+    }
+
     // --- Main event handler ------------------------------------------------------
     @EventHandler
     private void onTick(TickEvent.Pre event) {
