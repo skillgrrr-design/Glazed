@@ -22,7 +22,8 @@ public abstract class LivingEntityTravelMixin {
             return movement;
         }
 
-        // Apply NoSlow effect by reducing movement slowdown
-        return new Vec3d(movement.x * 1.5d, movement.y, movement.z * 1.5d);
+        // Apply NoSlow effect by completely bypassing slowdown
+        // For Grim/strict servers, apply more aggressive velocity restoration
+        return new Vec3d(movement.x * 1.8d, movement.y, movement.z * 1.8d);
     }
 }

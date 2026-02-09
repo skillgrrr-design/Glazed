@@ -144,10 +144,15 @@ public class NoSlow extends Module {
 
     // --- Mode handlers ----------------------------------------------------------
     private void handleNCP() {
-        // NCP mode: packet-based approach with inventory slot manipulation
+        // NCP mode: aggressive packet-based approach
         if (aggressiveBypass.get()) {
-            // Every tick, send slot change packets to confuse detection
+            // Send slot change packets every tick
             mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+            
+            // Additional: interact with off-hand to further confuse detection
+            if (mc.player.age % 2 == 0) {
+                sendSequencedPacket(id -> new PlayerInteractItemC2SPacket(Hand.OFF_HAND, id, mc.player.getYaw(), mc.player.getPitch()));
+            }
         } else {
             // Conservative approach: only send every 4 ticks
             if (mc.player.age % 4 == 0) {
