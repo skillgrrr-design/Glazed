@@ -93,15 +93,17 @@ public class TriggerBot extends Module {
         .build()
     );
 
-    private final Setting<Boolean> ignoreOnlyCritsOnLevitation = sgTiming.add(new BoolSetting.Builder()
-        .name("ignore-only-crits-on-levetation")
-        .defaultValue(true)
+    private final Setting<Boolean> smartCrit = sgTiming.add(new BoolSetting.Builder()
+        .name("smart-crit")
+        .description("If enabled, when you jump and are looking at a selected entity's hitbox, wait for a critical (don't attack while in the air). If not jumping, attack normally.")
+        .defaultValue(false)
         .visible(() -> onlyCrits.get())
         .build()
     );
 
     private int hitDelayTimer;
     private int airTicks = 0; // Contador de ticks en el aire
+    private boolean prevOnGround = true; // Para detectar si salimos del suelo por salto o por elevación externa
 
     private boolean entityCheck(Entity entity) {
         if (entity.equals(mc.player) || entity.equals(mc.getCameraEntity())) return false;
@@ -144,23 +146,34 @@ public class TriggerBot extends Module {
         return !(entity instanceof AnimalEntity) || babies.get() || !((AnimalEntity) entity).isBaby();
     }
 
-    private boolean delayCheck() {
-        // Only-crits: Attack only when guaranteed critical (in air or levitating for more than 1 tick)
+    private boolean delayCheck(Entity target, boolean playerJumped, boolean externalLift) {
+        boolean isInAir = !mc.player.isOnGround();
+        boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
+
+        // Only-crits handling
         if (onlyCrits.get()) {
-            boolean isInAir = !mc.player.isOnGround();
-            boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
-            
             if (hasLevitation) {
-                airTicks = 3; // Reset air ticks para mantener críticos con levitación
+                airTicks = 3; // Mantener críticos con levitación
             } else if (isInAir) {
                 airTicks++;
             } else {
                 airTicks = 0;
             }
-            
-            // Solo atacar si tiene al menos 2 ticks en el aire (significa que saltó)
-            if (airTicks < 2 && !hasLevitation) {
-                return false;
+
+            if (smartCrit.get()) {
+                // Behavior requested:
+                // - If the player intentionally jumped and is looking at the target, DO NOT attack while in the air; wait for a proper critical (>=2 ticks) or levitation.
+                // - If we were elevated externally (someone hit us) and we're looking at the target, return a fast hit using a looser check (airTicks>=1) so we "return" quickly.
+                if (playerJumped) {
+                    if (airTicks < 2 && !hasLevitation) return false;
+                } else if (externalLift) {
+                    if (airTicks < 1 && !hasLevitation) return false;
+                } else {
+                    // Not just-left-ground (or normal movement): allow normal hits while on ground
+                }
+            } else {
+                // Original behavior: always require the air-tick threshold (or levitation)
+                if (airTicks < 2 && !hasLevitation) return false;
             }
         }
 
@@ -189,9 +202,18 @@ public class TriggerBot extends Module {
 
         if (hit == null) return;
 
-        if (delayCheck() && entityCheck(hit)) {
+        // Detect if we just left the ground and whether it was a player jump or external elevation
+        boolean isInAir = !mc.player.isOnGround();
+        boolean justLeftGround = prevOnGround && isInAir;
+        boolean playerJumped = justLeftGround && mc.options.jumpKey.isPressed();
+        boolean externalLift = justLeftGround && !mc.options.jumpKey.isPressed();
+
+        if (delayCheck(hit, playerJumped, externalLift) && entityCheck(hit)) {
             hitEntity(hit);
         }
+
+        // Update prevOnGround for next tick
+        prevOnGround = mc.player.isOnGround();
     }
 
     private boolean needCrit(Entity e) {
