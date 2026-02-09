@@ -28,10 +28,9 @@ Addon para meteor client
 - **NoSlow** - Elimina la ralentización al comer
 
 ### Player
-- **ClickAction** - Lanzamiento rápido de Enderpearls y botellas de XP (keybindeable)
 - **AutoGG** - Mensaje automático al matar jugadores (configurable)
 ## Características
--  Integración total con GUI de Meteor Client
+-  Integración con GUI de Meteor Client
 -  Módulos completamente configurables
 -  Bajo overhead de rendimiento
 -  Código abierto bajo licencia MIT

@@ -9,12 +9,9 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.text.Text;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
@@ -37,9 +34,7 @@ public class AutoGG extends Module {
         .build()
     );
 
-    private final Map<UUID, String> recentAttacks = new HashMap<>(); // UUID -> nombre del jugador
     private final Map<String, Long> scheduledMessages = new HashMap<>(); // nombre -> timestamp
-    private static final long ATTACK_WINDOW = 10000; // 10 segundos de ventana para ataques
 
     public AutoGG() {
         super(Categories.Player, "AutoGG", "Sends a chat message when you kill a player.");
@@ -47,85 +42,43 @@ public class AutoGG extends Module {
 
     @Override
     public void onDeactivate() {
-        recentAttacks.clear();
         scheduledMessages.clear();
     }
 
     @EventHandler
     private void onReceiveMessage(ReceiveMessageEvent event) {
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null) return;
         
-        Text text = event.getMessage();
-        String message = text.getString();
+        String message = event.getMessage().getString().toLowerCase();
+        String playerName = mc.player.getName().getString().toLowerCase();
         
-        // Detectar patrones de muerte comunes
-        // Patrones: "Player fue asesinado por Player2", "Player fue muerte", etc.
-        String victim = detectDeathMessage(message);
-        
+        // Detectar muerte donde nosotros matamos
+        String victim = detectKill(message, playerName);
         if (victim != null && !victim.isEmpty()) {
-            // Verificar si fue uno de nuestros ataques recientes
-            if (wasRecentAttack(victim)) {
-                scheduleGGMessage(victim);
-            }
+            scheduleGGMessage(victim);
         }
     }
 
-    /**
-     * Detecta si el mensaje es una muerte y extrae el nombre de la víctima
-     */
-    private String detectDeathMessage(String message) {
-        // Patrones comunes de muerte
-        String[] deathPatterns = {
-            "(.+?) fue asesinado por (.+?)$",           // fue asesinado por
-            "(.+?) fue asesinado\\(",                   // fue asesinado (
-            "(.+?) fue muerto por (.+?)$",              // fue muerto por
-            "(.+?) was killed by (.+?)$",               // was killed by (en inglés)
-            "(.+?) was shot by (.+?)$",                 // was shot by
-            "(.+?) was slain by (.+?)$",                // was slain by
-            "(.+?) eliminó a (.+?)$",                   // eliminó a
-            "(.+?) mató a (.+?)$"                       // mató a
+    private String detectKill(String message, String playerName) {
+        // Patrones de muerte comunes
+        String[] patterns = {
+            "(.+?) fue asesinado por " + playerName,
+            "(.+?) was killed by " + playerName,
+            "(.+?) was slain by " + playerName,
+            "(.+?) was shot by " + playerName,
+            "(.+?) fue muerto por " + playerName
         };
 
-        for (String pattern : deathPatterns) {
-            Pattern p = Pattern.compile(pattern);
+        for (String pattern : patterns) {
+            Pattern p = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
             Matcher m = p.matcher(message);
             
             if (m.find()) {
-                String victim = m.group(1).trim();
-                String killer = null;
-                
-                // Intentar obtener al asesino
-                if (m.groupCount() >= 2) {
-                    killer = m.group(2).trim();
-                }
-                
-                // Verificar si nosotros somos el asesino
-                if (killer != null && killer.equalsIgnoreCase(mc.player.getName().getString())) {
-                    return victim;
-                }
+                return m.group(1).trim();
             }
         }
 
         return null;
-    }
-
-    /**
-     * Verifica si atacamos recientemente a este jugador
-     */
-    private boolean wasRecentAttack(String victimName) {
-        long now = System.currentTimeMillis();
-        
-        // Buscar si este jugador está en nuestros ataques recientes
-        for (Map.Entry<UUID, String> entry : recentAttacks.entrySet()) {
-            if (entry.getValue().equalsIgnoreCase(victimName)) {
-                // Verificar si fue dentro de la ventana de tiempo
-                long timeSinceAttack = now - entry.getKey().getMostSignificantBits(); // Esto no funciona así
-                return true; // Lo atacamos recientemente, asumimos que fuimos nosotros
-            }
-        }
-        
-        // Si no lo atacamos pero el mensaje dice que lo matamos, también contar como nuestro
-        return true;
     }
 
     private void scheduleGGMessage(String victimName) {
@@ -135,40 +88,15 @@ public class AutoGG extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null || mc.getNetworkHandler() == null) return;
 
-        // Registrar ataques recientes a otros jugadores
-        for (PlayerEntity p : mc.world.getPlayers()) {
-            if (p == mc.player) continue;
-            UUID id = p.getUuid();
-            
-            // Si miramos/apuntamos al jugador, registrar que lo atacamos
-            if (mc.targetedEntity == p && !recentAttacks.containsKey(id)) {
-                recentAttacks.put(id, p.getName().getString());
-            }
-        }
-
-        // Limpiar ataques antiguos
-        final long cleanupTime = System.currentTimeMillis();
-        recentAttacks.entrySet().removeIf(e -> {
-            // Mantener el registro por 10 segundos después de que desaparece el jugador
-            PlayerEntity p = mc.world.getPlayerByUuid(e.getKey());
-            if (p == null || !p.isAlive()) {
-                return true; // Remover si el jugador no está vivo
-            }
-            return false;
-        });
-
-        // Enviar mensajes programados
-        final long sendTime = System.currentTimeMillis();
+        final long now = System.currentTimeMillis();
         scheduledMessages.entrySet().removeIf(entry -> {
-            if (entry.getValue() <= sendTime) {
+            if (entry.getValue() <= now) {
                 String victimName = entry.getKey();
                 String ggMessage = message.get().replace("{name}", victimName);
                 try {
-                    if (mc.player != null && mc.getNetworkHandler() != null) {
-                        mc.getNetworkHandler().sendChatMessage(ggMessage);
-                    }
+                    mc.getNetworkHandler().sendChatMessage(ggMessage);
                 } catch (Throwable ignored) {}
                 return true;
             }

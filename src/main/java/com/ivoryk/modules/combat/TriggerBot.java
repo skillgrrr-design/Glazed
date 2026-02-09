@@ -101,6 +101,7 @@ public class TriggerBot extends Module {
     );
 
     private int hitDelayTimer;
+    private int airTicks = 0; // Contador de ticks en el aire
 
     private boolean entityCheck(Entity entity) {
         if (entity.equals(mc.player) || entity.equals(mc.getCameraEntity())) return false;
@@ -144,10 +145,23 @@ public class TriggerBot extends Module {
     }
 
     private boolean delayCheck() {
-        // Only-crits: Attack only when guaranteed critical (in air or levitating)
+        // Only-crits: Attack only when guaranteed critical (in air or levitating for more than 1 tick)
         if (onlyCrits.get()) {
-            boolean hasCrit = !mc.player.isOnGround() || mc.player.hasStatusEffect(StatusEffects.LEVITATION);
-            if (!hasCrit) return false;
+            boolean isInAir = !mc.player.isOnGround();
+            boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
+            
+            if (hasLevitation) {
+                airTicks = 3; // Reset air ticks para mantener críticos con levitación
+            } else if (isInAir) {
+                airTicks++;
+            } else {
+                airTicks = 0;
+            }
+            
+            // Solo atacar si tiene al menos 2 ticks en el aire (significa que saltó)
+            if (airTicks < 2 && !hasLevitation) {
+                return false;
+            }
         }
 
         if (smartDelay.get()) return mc.player.getAttackCooldownProgress(0.5f) >= 1;
