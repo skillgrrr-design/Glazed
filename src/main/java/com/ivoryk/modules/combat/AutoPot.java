@@ -133,16 +133,6 @@ public class AutoPot extends Module {
         } catch (Throwable ignored) {}
     }
 
-    @Override
-    public void onActivate() {
-        // Initialize state
-    }
-
-    @Override
-    public void onDeactivate() {
-        // Reset state
-    }
-
     // Implementation note: perform smooth interpolation of player's pitch to simulate natural throw,
     // check incoming damage and simple prediction before using potions. Avoid instant snaps.
 }
