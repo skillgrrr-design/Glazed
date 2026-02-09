@@ -20,7 +20,6 @@ import net.minecraft.util.Hand;
 import net.minecraft.world.GameMode;
 
 import java.lang.reflect.Method;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -93,17 +92,8 @@ public class TriggerBot extends Module {
         .build()
     );
 
-    private final Setting<Boolean> smartCrit = sgTiming.add(new BoolSetting.Builder()
-        .name("smart-crit")
-        .description("If enabled, when you jump and are looking at a selected entity's hitbox, wait for a critical (don't attack while in the air). If not jumping, attack normally.")
-        .defaultValue(false)
-        .visible(() -> onlyCrits.get())
-        .build()
-    );
-
     private int hitDelayTimer;
-    private int airTicks = 0; // Contador de ticks en el aire
-    private boolean prevOnGround = true; // Para detectar si salimos del suelo por salto o por elevación externa
+    private double lastY = 0; // Previous Y position to detect if falling (lag-resistant critical detection)
 
     private boolean entityCheck(Entity entity) {
         if (entity.equals(mc.player) || entity.equals(mc.getCameraEntity())) return false;
@@ -146,37 +136,21 @@ public class TriggerBot extends Module {
         return !(entity instanceof AnimalEntity) || babies.get() || !((AnimalEntity) entity).isBaby();
     }
 
-    private boolean delayCheck(Entity target, boolean playerJumped, boolean externalLift) {
+    private boolean isCritical() {
+        if (!onlyCrits.get()) return true; // If only-crits is off, allow normal hits
+
         boolean isInAir = !mc.player.isOnGround();
         boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
+        double currentY = mc.player.getY();
+        boolean isFalling = currentY < lastY; // Check if player is currently descending
 
-        // Only-crits handling
-        if (onlyCrits.get()) {
-            if (hasLevitation) {
-                airTicks = 3; // Mantener críticos con levitación
-            } else if (isInAir) {
-                airTicks++;
-            } else {
-                airTicks = 0;
-            }
+        // Crit is safe if:
+        // 1. Player is levitating
+        // 2. Player is in the air AND falling (ensures they aren't just jumping up)
+        return hasLevitation || (isInAir && isFalling);
+    }
 
-            if (smartCrit.get()) {
-                // Behavior requested:
-                // - If the player intentionally jumped and is looking at the target, DO NOT attack while in the air; wait for a proper critical (>=2 ticks) or levitation.
-                // - If we were elevated externally (someone hit us) and we're looking at the target, return a fast hit using a looser check (airTicks>=1) so we "return" quickly.
-                if (playerJumped) {
-                    if (airTicks < 2 && !hasLevitation) return false;
-                } else if (externalLift) {
-                    if (airTicks < 1 && !hasLevitation) return false;
-                } else {
-                    // Not just-left-ground (or normal movement): allow normal hits while on ground
-                }
-            } else {
-                // Original behavior: always require the air-tick threshold (or levitation)
-                if (airTicks < 2 && !hasLevitation) return false;
-            }
-        }
-
+    private boolean delayCheck() {
         if (smartDelay.get()) return mc.player.getAttackCooldownProgress(0.5f) >= 1;
 
         if (hitDelayTimer > 0) {
@@ -202,27 +176,13 @@ public class TriggerBot extends Module {
 
         if (hit == null) return;
 
-        // Detect if we just left the ground and whether it was a player jump or external elevation
-        boolean isInAir = !mc.player.isOnGround();
-        boolean justLeftGround = prevOnGround && isInAir;
-        boolean playerJumped = justLeftGround && mc.options.jumpKey.isPressed();
-        boolean externalLift = justLeftGround && !mc.options.jumpKey.isPressed();
-
-        if (delayCheck(hit, playerJumped, externalLift) && entityCheck(hit)) {
+        // Check crit safety and attack if ready - simple and lag-resistant
+        if (isCritical() && delayCheck() && entityCheck(hit)) {
             hitEntity(hit);
         }
 
-        // Update prevOnGround for next tick
-        prevOnGround = mc.player.isOnGround();
-    }
-
-    private boolean needCrit(Entity e) {
-        try {
-            Class<?> critCls = Class.forName("nekiplay.meteorplus.features.modules.combat.criticals.CriticalsPlus");
-            Method nc = critCls.getDeclaredMethod("needCrit", Entity.class);
-            return (Boolean) nc.invoke(null, e);
-        } catch (Throwable ignored) {}
-        return false;
+        // Store current Y for next tick to detect falling
+        lastY = mc.player.getY();
     }
 
     private void hitEntity(Entity target) {
