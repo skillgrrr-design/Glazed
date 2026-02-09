@@ -1,6 +1,5 @@
 package com.ivoryk.modules.combat;
 
-
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
@@ -76,7 +75,7 @@ public class TriggerBot extends Module {
     );
 
     private final Setting<Integer> randomDelayMax = sgTiming.add(new IntSetting.Builder()
-        .name("random-delay-max")
+        .name("random-delay- max")
         .description("The maximum value for random delay.")
         .defaultValue(4)
         .min(0)
@@ -93,7 +92,7 @@ public class TriggerBot extends Module {
     );
 
     private int hitDelayTimer;
-    private double lastY = 0; // Previous Y position to detect if falling (lag-resistant critical detection)
+    private double lastY = 0;
 
     private boolean entityCheck(Entity entity) {
         if (entity.equals(mc.player) || entity.equals(mc.getCameraEntity())) return false;
@@ -109,7 +108,6 @@ public class TriggerBot extends Module {
             if (player.isCreative()) return false;
             if (!Friends.get().shouldAttack(player)) return false;
 
-            // Optional checks for AntiBotPlus and Teams via reflection (if present)
             try {
                 Class<?> antiCls = Class.forName("nekiplay.meteorplus.features.modules.combat.AntiBotPlus");
                 Object anti = Modules.get().get((Class) antiCls);
@@ -137,16 +135,13 @@ public class TriggerBot extends Module {
     }
 
     private boolean isCritical() {
-        if (!onlyCrits.get()) return true; // If only-crits is off, allow normal hits
+        if (!onlyCrits.get()) return true;
 
         boolean isInAir = !mc.player.isOnGround();
         boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
         double currentY = mc.player.getY();
-        boolean isFalling = currentY < lastY; // Check if player is currently descending
+        boolean isFalling = currentY < lastY;
 
-        // Crit is safe if:
-        // 1. Player is levitating
-        // 2. Player is in the air AND falling (ensures they aren't just jumping up)
         return hasLevitation || (isInAir && isFalling);
     }
 
@@ -166,7 +161,6 @@ public class TriggerBot extends Module {
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || !mc.player.isAlive() || PlayerUtils.getGameMode() == GameMode.SPECTATOR) return;
-        // Only attack when the crosshair raycast hit an entity (hitbox intersection)
         if (mc.crosshairTarget == null || mc.crosshairTarget.getType() != net.minecraft.util.hit.HitResult.Type.ENTITY) return;
 
         if (!(mc.crosshairTarget instanceof net.minecraft.util.hit.EntityHitResult)) return;
@@ -176,12 +170,10 @@ public class TriggerBot extends Module {
 
         if (hit == null) return;
 
-        // Check crit safety and attack if ready - simple and lag-resistant
         if (isCritical() && delayCheck() && entityCheck(hit)) {
             hitEntity(hit);
         }
 
-        // Store current Y for next tick to detect falling
         lastY = mc.player.getY();
     }
 

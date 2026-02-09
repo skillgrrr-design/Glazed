@@ -1,9 +1,6 @@
 package com.ivoryk.modules.misc;
 
-import meteordevelopment.meteorclient.settings.IntSetting;
-import meteordevelopment.meteorclient.settings.Setting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
-import meteordevelopment.meteorclient.settings.StringSetting;
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
@@ -14,6 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+import java.util.Random;
 
 public class AutoGG extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
@@ -34,10 +32,28 @@ public class AutoGG extends Module {
         .build()
     );
 
+    private final Setting<Boolean> randomSuffix = sgGeneral.add(new BoolSetting.Builder()
+        .name("random-suffix")
+        .description("Add random characters at the end to avoid spam detection")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Integer> randomLength = sgGeneral.add(new IntSetting.Builder()
+        .name("random-length")
+        .description("Length of random characters to append")
+        .defaultValue(4)
+        .min(1)
+        .sliderMax(10)
+        .visible(() -> randomSuffix.get())
+        .build()
+    );
+
     private final Map<String, Long> scheduledMessages = new HashMap<>(); // nombre -> timestamp
+    private final Random random = new Random();
 
     public AutoGG() {
-        super(Categories.Player, "AutoGG", "Sends a chat message when you kill a player.");
+        super(Categories.Player, "AutoGG", "Sends a chat message when you kill a player with optional random suffix.");
     }
 
     @Override
@@ -95,6 +111,12 @@ public class AutoGG extends Module {
             if (entry.getValue() <= now) {
                 String victimName = entry.getKey();
                 String ggMessage = message.get().replace("{name}", victimName);
+                
+                // Agregar sufijo aleatorio si está habilitado
+                if (randomSuffix.get()) {
+                    ggMessage += " " + generateRandomString(randomLength.get());
+                }
+                
                 try {
                     mc.getNetworkHandler().sendChatMessage(ggMessage);
                 } catch (Throwable ignored) {}
@@ -102,5 +124,14 @@ public class AutoGG extends Module {
             }
             return false;
         });
+    }
+
+    private String generateRandomString(int length) {
+        String chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < length; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 }

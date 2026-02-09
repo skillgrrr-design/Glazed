@@ -1,6 +1,5 @@
 package com.ivoryk.modules.combat;
 
-import com.ivoryk.utils.InventoryUtils;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
@@ -11,17 +10,26 @@ import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.PlayerInteractItemC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.Hand;
+import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * AutoPot mejorado para GrimNew:
+ * - Timing adaptativo y realista
+ * - Rotación suave para evitar detección
+ * - Búsqueda inteligente de pociones
+ * - Compatible con servidores anti-cheat
+ */
 public class AutoPot extends Module {
     public AutoPot() {
-        super(Categories.Combat, "AutoPot", "Automatically use healing potions with smooth rotation and configurable thresholds.");
+        super(Categories.Combat, "AutoPot", "Usa pociones automáticamente con rotación suave compatible con anti-cheat.");
     }
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final SettingGroup sgTiming = settings.createGroup("Timing");
 
     private final Setting<Integer> healthThreshold = sgGeneral.add(new IntSetting.Builder()
         .name("health-threshold")
-        .description("Health threshold below which the module will attempt to use a healing potion.")
+        .description("Umbral de salud para usar pociones.")
         .defaultValue(10)
         .min(1)
         .sliderMax(20)
@@ -30,23 +38,51 @@ public class AutoPot extends Module {
 
     private final Setting<Boolean> hotbarOnly = sgGeneral.add(new BoolSetting.Builder()
         .name("hotbar-only")
-        .description("Only use potions found in the hotbar.")
-        .defaultValue(true)
+        .description("Solo usar pociones de la hotbar.")
+        .defaultValue(false)
         .build()
     );
 
     private final Setting<Double> rotationSpeed = sgGeneral.add(new DoubleSetting.Builder()
         .name("rotation-speed")
-        .description("Smooth rotation speed when throwing potions (higher is faster).")
-        .defaultValue(8)
+        .description("Velocidad de rotación (más alto = más rápido).")
+        .defaultValue(6.0)
         .min(0.1)
         .sliderMax(20)
         .build()
     );
 
+    private final Setting<Integer> minDelay = sgTiming.add(new IntSetting.Builder()
+        .name("min-delay")
+        .description("Delay mínimo entre usos de pociones (ticks).")
+        .defaultValue(3)
+        .min(0)
+        .sliderMax(20)
+        .build()
+    );
+
+    private final Setting<Integer> maxDelay = sgTiming.add(new IntSetting.Builder()
+        .name("max-delay")
+        .description("Delay máximo entre usos de pociones (ticks).")
+        .defaultValue(8)
+        .min(0)
+        .sliderMax(20)
+        .build()
+    );
+
+    private final Setting<Boolean> randomizeRotation = sgGeneral.add(new BoolSetting.Builder()
+        .name("randomize-rotation")
+        .description("Variación aleatoria en la rotación para parecer más humano.")
+        .defaultValue(true)
+        .build()
+    );
+
     private int useDelay = 0;
-    private int targetSlot = -1; // hotbar slot to use
-    private float targetPitch = 90f; // look down
+    private int targetSlot = -1;
+    private float targetPitch = 90f;
+    private float targetYaw = 0f;
+    private float lastYaw = 0f;
+    private float lastPitch = 0f;
 
     @Override
     public void onActivate() {
@@ -64,75 +100,123 @@ public class AutoPot extends Module {
     private void onTick(TickEvent.Post event) {
         if (mc.player == null) return;
 
-        // Only attempt when health below threshold
         float health = mc.player.getHealth() + mc.player.getAbsorptionAmount();
         if (health > healthThreshold.get()) return;
 
-        // Cooldown
         if (useDelay > 0) {
             useDelay--;
             return;
         }
 
-        // find potion in hotbar
-        int potionSlot = -1;
-        for (int i = 0; i <= 8; i++) {
-            ItemStack st = mc.player.getInventory().getStack(i);
-            if (st != null && !st.isEmpty() && st.getItem() == Items.POTION) {
-                potionSlot = i;
-                break;
-            }
-        }
-
-        if (potionSlot == -1 && hotbarOnly.get()) return;
-
+        // Buscar poción en hotbar primero
+        int potionSlot = findPotionInHotbar();
+        
+        // Si no está en hotbar, buscar en inventario
         if (potionSlot == -1 && !hotbarOnly.get()) {
-            // try to find in inventory and move to first empty hotbar slot
-            int found = -1;
-            for (int s = 9; s <= 35; s++) {
-                ItemStack st = mc.player.getInventory().getStack(s - 9 + 9);
-                if (st != null && !st.isEmpty() && st.getItem() == Items.POTION) {
-                    found = s;
-                    break;
-                }
-            }
-            if (found == -1) return;
-            // move to first empty hotbar
-            int empty = -1;
-            for (int h = 0; h <= 8; h++) if (mc.player.getInventory().getStack(h).isEmpty()) { empty = h; break; }
-            if (empty == -1) return;
-            try {
-                int syncId = mc.player.playerScreenHandler.syncId;
-                mc.interactionManager.clickSlot(syncId, found, 0, net.minecraft.screen.slot.SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, empty, 0, net.minecraft.screen.slot.SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, found, 0, net.minecraft.screen.slot.SlotActionType.PICKUP, mc.player);
-                potionSlot = empty;
-            } catch (Throwable ignored) { return; }
+            potionSlot = findPotionInInventory();
         }
 
         if (potionSlot == -1) return;
 
-        // Smooth rotation towards looking down
-        float currentPitch = mc.player.getPitch();
-        float newPitch = currentPitch;
-        float diff = targetPitch - currentPitch;
-        float step = (float) Math.max(0.5, Math.min(10.0, rotationSpeed.get())) / 10f;
-        if (Math.abs(diff) > 1f) {
-            newPitch = currentPitch + Math.signum(diff) * step;
-            mc.player.setPitch(newPitch);
-            return; // wait until rotation finishes
+        // Si la poción no está en hotbar, moverla
+        if (potionSlot > 8) {
+            movePotionToHotbar(potionSlot);
+            return;
         }
 
-        // select slot and use potion
-        try {
-            InventoryUtils.setSelectedSlot(mc.player.getInventory(), potionSlot);
-            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
-            mc.getNetworkHandler().sendPacket(new PlayerInteractItemC2SPacket(Hand.MAIN_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
-            mc.player.swingHand(Hand.MAIN_HAND);
-            useDelay = 20; // small cooldown
-        } catch (Throwable ignored) {}
+        // Aplicar rotación suave
+        applySmoothedRotation();
+
+        // Usar poción cuando la rotación esté lista
+        if (isRotationReady()) {
+            usePotionAtSlot(potionSlot);
+            int delayRange = maxDelay.get() - minDelay.get();
+            useDelay = minDelay.get() + (delayRange > 0 ? ThreadLocalRandom.current().nextInt(delayRange) : 0);
+        }
     }
 
-    // Implementation note: perform smooth interpolation of player's pitch to simulate natural throw,
-    // check incoming damage and simple prediction before using potions. Avoid instant snaps.
+    private int findPotionInHotbar() {
+        for (int i = 0; i <= 8; i++) {
+            ItemStack stack = mc.player.getInventory().getStack(i);
+            if (stack != null && !stack.isEmpty() && isPotionItem(stack.getItem())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int findPotionInInventory() {
+        for (int i = 9; i <= 35; i++) {
+            ItemStack stack = mc.player.getInventory().getStack(i);
+            if (stack != null && !stack.isEmpty() && isPotionItem(stack.getItem())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isPotionItem(net.minecraft.item.Item item) {
+        return item == Items.POTION || item == Items.SPLASH_POTION || item == Items.LINGERING_POTION;
+    }
+
+    private void movePotionToHotbar(int potionSlot) {
+        try {
+            int syncId = mc.player.playerScreenHandler.syncId;
+            
+            // Encontrar slot vacío en hotbar
+            int emptySlot = -1;
+            for (int i = 0; i <= 8; i++) {
+                if (mc.player.getInventory().getStack(i).isEmpty()) {
+                    emptySlot = i;
+                    break;
+                }
+            }
+            
+            if (emptySlot == -1) return;
+            
+            mc.interactionManager.clickSlot(syncId, potionSlot, 0, net.minecraft.screen.slot.SlotActionType.PICKUP, mc.player);
+            mc.interactionManager.clickSlot(syncId, emptySlot, 0, net.minecraft.screen.slot.SlotActionType.PICKUP, mc.player);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void applySmoothedRotation() {
+        float currentYaw = mc.player.getYaw();
+        float currentPitch = mc.player.getPitch();
+        
+        // Calcular target con variación aleatoria si está habilitado
+        if (randomizeRotation.get()) {
+            float randomYaw = (ThreadLocalRandom.current().nextFloat() - 0.5f) * 30f;
+            targetYaw = randomYaw;
+        } else {
+            targetYaw = 0f;
+        }
+        targetPitch = 90f;
+        
+        // Aplicar interpolación suave
+        double speed = rotationSpeed.get() / 10.0;
+        float newYaw = currentYaw + (targetYaw - currentYaw) * (float) speed;
+        float newPitch = Math.min(currentPitch + (targetPitch - currentPitch) * (float) speed, 90f);
+        
+        mc.player.setYaw(newYaw);
+        mc.player.setPitch(newPitch);
+        
+        lastYaw = newYaw;
+        lastPitch = newPitch;
+    }
+
+    private boolean isRotationReady() {
+        float pitchDiff = Math.abs(mc.player.getPitch() - 90f);
+        return pitchDiff < 5f;
+    }
+
+    private void usePotionAtSlot(int slot) {
+        try {
+            mc.player.getInventory().selectedSlot = slot;
+            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+            mc.getNetworkHandler().sendPacket(new PlayerInteractItemC2SPacket(Hand.MAIN_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
+            mc.player.swingHand(Hand.MAIN_HAND);
+        } catch (Throwable ignored) {
+        }
+    }
 }

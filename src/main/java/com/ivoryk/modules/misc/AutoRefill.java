@@ -1,6 +1,5 @@
 package com.ivoryk.modules.misc;
 
-import com.ivoryk.utils.InventoryUtils;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
@@ -10,41 +9,46 @@ import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-// Note: avoid using PotionUtil/registry-specific potion checks to remain mapping-agnostic
 import net.minecraft.screen.slot.SlotActionType;
 
+/**
+ * AutoRefill mejorado:
+ * - Funciona correctamente dentro del inventario
+ * - Llena slots vacíos de la hotbar con pociones y sopas
+ * - Respeta objetos protegidos (espada, manzana dorada, tótem, cristales)
+ */
 public class AutoRefill extends Module {
     public AutoRefill() {
-        super(Categories.Player, "AutoRefill", "Auto-refill hotbar slots when the inventory is open, respecting protected items and slot locks.");
+        super(Categories.Player, "AutoRefill", "Auto-refill hotbar slots cuando el inventario está abierto.");
     }
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
     private final Setting<Boolean> enableSoups = sgGeneral.add(new BoolSetting.Builder()
         .name("soups")
-        .description("Refill soups from inventory to prioritized hotbar slots.")
+        .description("Rellenar sopas desde el inventario a la hotbar.")
         .defaultValue(true)
         .build()
     );
 
     private final Setting<Boolean> enablePotions = sgGeneral.add(new BoolSetting.Builder()
         .name("potions")
-        .description("Refill potions from inventory to prioritized hotbar slots.")
+        .description("Rellenar pociones desde el inventario a la hotbar.")
         .defaultValue(true)
         .build()
     );
 
     private final Setting<Boolean> respectProtected = sgGeneral.add(new BoolSetting.Builder()
         .name("respect-protected")
-        .description("Do not move protected items (sword, gapple, totem, crystals, or marked items).")
+        .description("No mover objetos protegidos (espada, manzana dorada, tótem, cristales).")
         .defaultValue(true)
         .build()
     );
 
     private final Setting<Integer> refillDelay = sgGeneral.add(new IntSetting.Builder()
         .name("refill-delay")
-        .description("Delay (ticks) between refill actions to keep behavior realistic.")
-        .defaultValue(5)
+        .description("Delay (ticks) entre acciones de relleno.")
+        .defaultValue(3)
         .min(0)
         .sliderMax(20)
         .build()
@@ -59,62 +63,84 @@ public class AutoRefill extends Module {
 
     @Override
     public void onDeactivate() {
-        // Cleanup if needed
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.player.getInventory() == null) return;
-        if (!(mc.currentScreen instanceof HandledScreen)) return; // Only run when inventory/container is open
+        if (!(mc.currentScreen instanceof HandledScreen)) return;
 
         tickCounter++;
         if (tickCounter < Math.max(1, refillDelay.get())) return;
         tickCounter = 0;
 
-        // Hotbar slots 0-8
-        for (int hotbar = 0; hotbar <= 8; hotbar++) {
-            ItemStack hot = mc.player.getInventory().getStack(hotbar);
+        // Verificar hotbar (0-8)
+        for (int hotbarSlot = 0; hotbarSlot <= 8; hotbarSlot++) {
+            ItemStack hotbarStack = mc.player.getInventory().getStack(hotbarSlot);
 
-            if (!hot.isEmpty()) continue; // only fill empty slots
-
-            // find candidate in main inventory (9-35)
-            int found = -1;
-            for (int s = 9; s <= 35; s++) {
-                ItemStack st = mc.player.getInventory().getStack(s);
-                // st index: player inventory main starts at index 9 in container
-                if (st == null) continue;
-                if (st.isEmpty()) continue;
-
-                Item it = st.getItem();
-                boolean match = false;
-                if (enablePotions.get() && (it == Items.POTION || it == Items.SPLASH_POTION || it == Items.LINGERING_POTION)) {
-                    match = true; // treat any potion as acceptable (configurable later)
-                }
-                if (enableSoups.get() && (it == Items.MUSHROOM_STEW || it == Items.SUSPICIOUS_STEW || it == Items.BEETROOT_SOUP)) match = true;
-
-                if (match) {
-                    found = s;
-                    break;
-                }
+            // Si está lleno o protegido, saltar
+            if (!hotbarStack.isEmpty()) {
+                if (isProtected(hotbarStack)) continue;
             }
 
-            if (found == -1) continue;
+            // Si está vacío, buscar en el inventario principal (9-35)
+            if (hotbarStack.isEmpty()) {
+                int sourceSlot = findItemToRefill();
+                if (sourceSlot != -1) {
+                    performSwap(hotbarSlot, sourceSlot);
+                    return; // Una acción por tick
+                }
+            }
+        }
+    }
 
-            // Perform safe window clicks: pickup source -> pickup target
-            try {
-                int syncId = mc.player.playerScreenHandler.syncId;
-                mc.interactionManager.clickSlot(syncId, found, 0, SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, hotbar, 0, SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, found, 0, SlotActionType.PICKUP, mc.player);
-            } catch (Throwable ignored) {}
-            return; // do one move per delay to keep behavior natural
+    private int findItemToRefill() {
+        // Buscar en el inventario principal (9-35)
+        for (int invSlot = 9; invSlot <= 35; invSlot++) {
+            ItemStack stack = mc.player.getInventory().getStack(invSlot);
+            if (stack == null || stack.isEmpty()) continue;
+
+            Item item = stack.getItem();
+            
+            if (enablePotions.get() && isPotionItem(item)) {
+                return invSlot;
+            }
+            if (enableSoups.get() && isSoupItem(item)) {
+                return invSlot;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isPotionItem(Item item) {
+        return item == Items.POTION || item == Items.SPLASH_POTION || item == Items.LINGERING_POTION;
+    }
+
+    private boolean isSoupItem(Item item) {
+        return item == Items.MUSHROOM_STEW || item == Items.SUSPICIOUS_STEW || item == Items.BEETROOT_SOUP;
+    }
+
+    private void performSwap(int hotbarSlot, int invSlot) {
+        try {
+            int syncId = mc.player.playerScreenHandler.syncId;
+            // Click en el slot del inventario
+            mc.interactionManager.clickSlot(syncId, invSlot, 0, SlotActionType.PICKUP, mc.player);
+            // Click en el slot de la hotbar
+            mc.interactionManager.clickSlot(syncId, hotbarSlot, 0, SlotActionType.PICKUP, mc.player);
+        } catch (Throwable ignored) {
         }
     }
 
     private boolean isProtected(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
-        Item it = stack.getItem();
         if (!respectProtected.get()) return false;
-        return it == Items.DIAMOND_SWORD || it == Items.NETHERITE_SWORD || it == Items.GOLDEN_APPLE || it == Items.TOTEM_OF_UNDYING || it == Items.END_CRYSTAL;
+        
+        Item item = stack.getItem();
+        return item == Items.DIAMOND_SWORD || 
+               item == Items.NETHERITE_SWORD ||
+               item == Items.IRON_SWORD ||
+               item == Items.GOLDEN_APPLE ||
+               item == Items.TOTEM_OF_UNDYING ||
+               item == Items.END_CRYSTAL;
     }
 }

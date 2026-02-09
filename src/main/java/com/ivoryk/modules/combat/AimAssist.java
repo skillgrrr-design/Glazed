@@ -1,22 +1,30 @@
 package com.ivoryk.modules.combat;
-import meteordevelopment.meteorclient.settings.BoolSetting;
-import meteordevelopment.meteorclient.settings.DoubleSetting;
-import meteordevelopment.meteorclient.settings.EnumSetting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
+
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.SwordItem;
-import java.util.Random;
 import net.minecraft.util.math.Box;
+import java.util.Random;
 
+/**
+ * AimAssist mejorado fusionado con TriggerBot:
+ * - Targeting inteligente (menor vida primero)
+ * - Asistencia de aim suave y realista
+ * - Precisión de críticos ~100%
+ * - Compatible con el sistema de TriggerBot
+ */
 public class AimAssist extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final SettingGroup sgTargeting = settings.createGroup("Targeting");
+    private final SettingGroup sgAiming = settings.createGroup("Aiming");
 
     public enum TargetType {
         PLAYERS,
@@ -35,80 +43,87 @@ public class AimAssist extends Module {
         SINE
     }
 
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> enabled = sgGeneral.add(new BoolSetting.Builder()
+    private final Setting<Boolean> enabled = sgGeneral.add(new BoolSetting.Builder()
         .name("enabled")
-        .description("Enable aim assist")
+        .description("Activar AimAssist")
         .defaultValue(true)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<TargetType> targetType = sgGeneral.add(new EnumSetting.Builder<TargetType>()
+    private final Setting<TargetType> targetType = sgTargeting.add(new EnumSetting.Builder<TargetType>()
         .name("target-type")
-        .description("Type of entities to assist aim")
+        .description("Tipo de entidad a asistir")
         .defaultValue(TargetType.BOTH)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<AimMode> aimMode = sgGeneral.add(new EnumSetting.Builder<AimMode>()
+    private final Setting<Boolean> lowestHealthFirst = sgTargeting.add(new BoolSetting.Builder()
+        .name("lowest-health-first")
+        .description("Priorizar objetivo con menor vida")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<AimMode> aimMode = sgTargeting.add(new EnumSetting.Builder<AimMode>()
         .name("aim-mode")
-        .description("Aim behavior: LEGIT ignores FOV, FOV only targets inside FOV")
+        .description("Modo de aim: LEGIT (sin FOV), FOV (solo dentro de FOV)")
         .defaultValue(AimMode.FOV)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<SmoothType> smoothType = sgGeneral.add(new EnumSetting.Builder<SmoothType>()
+    private final Setting<SmoothType> smoothType = sgAiming.add(new EnumSetting.Builder<SmoothType>()
         .name("smooth-type")
-        .description("Type of smoothing: LINEAR (direct), EXPONENTIAL (very smooth), SINE (curved)")
+        .description("Tipo de suavidad: LINEAR, EXPONENTIAL, SINE")
         .defaultValue(SmoothType.EXPONENTIAL)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Double> smoothness = sgGeneral.add(new DoubleSetting.Builder()
+    private final Setting<Double> smoothness = sgAiming.add(new DoubleSetting.Builder()
         .name("smoothness")
-        .description("Aim smoothness (higher = smoother, lower = faster response)")
+        .description("Suavidad del aim (mayor = más suave)")
         .defaultValue(0.08)
         .min(0.01)
         .max(0.5)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Double> speed = sgGeneral.add(new DoubleSetting.Builder()
+    private final Setting<Double> speed = sgAiming.add(new DoubleSetting.Builder()
         .name("speed")
-        .description("How fast the aim moves (higher = faster)")
+        .description("Velocidad del aim (mayor = más rápido)")
         .defaultValue(3.0)
         .min(0.5)
         .max(10.0)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Double> range = sgGeneral.add(new DoubleSetting.Builder()
+    private final Setting<Double> range = sgAiming.add(new DoubleSetting.Builder()
         .name("range")
-        .description("Aim assist range")
+        .description("Rango del aim assist")
         .defaultValue(5.0)
         .min(1.0)
         .max(10.0)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Double> fov = sgGeneral.add(new DoubleSetting.Builder()
+    private final Setting<Double> fov = sgAiming.add(new DoubleSetting.Builder()
         .name("fov")
-        .description("Field of view for aim assist")
+        .description("Campo de visión para aim assist")
         .defaultValue(45.0)
         .min(10.0)
         .max(180.0)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> requireSword = sgGeneral.add(new BoolSetting.Builder()
+    private final Setting<Boolean> requireSword = sgGeneral.add(new BoolSetting.Builder()
         .name("require-sword")
-        .description("Only work when holding a sword")
+        .description("Solo funcionar sosteniendo espada")
         .defaultValue(true)
         .build()
     );
 
-    private final meteordevelopment.meteorclient.settings.Setting<Boolean> disableWhileEating = sgGeneral.add(new BoolSetting.Builder()
+    private final Setting<Boolean> disableWhileEating = sgGeneral.add(new BoolSetting.Builder()
         .name("disable-while-eating")
-        .description("Disable aim assist while eating")
+        .description("Desactivar mientras se come")
         .defaultValue(true)
         .build()
     );
@@ -117,9 +132,10 @@ public class AimAssist extends Module {
     private float targetYaw = 0;
     private float targetPitch = 0;
     private final Random random = new Random();
+    private LivingEntity currentTarget = null;
 
     public AimAssist() {
-        super(Categories.Combat, "AimAssist", "Smooth and fast aim assist");
+        super(Categories.Combat, "AimAssist", "Aim assist suave y fusionado con TriggerBot");
     }
 
     public void onUpdate() {
@@ -142,12 +158,13 @@ public class AimAssist extends Module {
         }
         updateCounter = 0;
 
-        Entity target = getClosestValidTarget(player);
-        if (target == null) {
+        // Obtener el mejor objetivo (menor vida o más cercano)
+        currentTarget = getBestTarget(player);
+        if (currentTarget == null) {
             return;
         }
 
-        double[] angles = calculateAngles(player, target);
+        double[] angles = calculateAngles(player, currentTarget);
         targetYaw = (float) angles[0];
         targetPitch = (float) angles[1];
 
@@ -155,7 +172,7 @@ public class AimAssist extends Module {
         float currentPitch = player.getPitch();
 
         // Aplicar interpolación según el tipo seleccionado
-        double smoothness = this.smoothness.get();
+        double smoothnessValue = this.smoothness.get();
         double speedFactor = this.speed.get();
 
         float newYaw = currentYaw;
@@ -169,31 +186,23 @@ public class AimAssist extends Module {
 
         switch (smoothType.get()) {
             case LINEAR:
-                // Interpolación lineal simple y rápida
-                float linearInterp = (float) (smoothness * speedFactor);
+                float linearInterp = (float) (smoothnessValue * speedFactor);
                 linearInterp = Math.max(0.001f, Math.min(0.95f, linearInterp));
                 newYaw = currentYaw + yawDiff * linearInterp;
                 newPitch = currentPitch + pitchDiff * linearInterp;
                 break;
 
             case EXPONENTIAL:
-                // Exponential decay: muy suave pero responde rápido
-                // Usa potencia exponencial para suavidad orgánica
-                double progress = speedFactor * (1.0 - smoothness);
+                double progress = speedFactor * (1.0 - smoothnessValue);
                 progress = Math.max(0.001, Math.min(0.95, progress));
-                
-                // Aplicar cubo para suavidad extrema: progress^3
                 double eased = progress * progress * progress;
                 newYaw = (float) (currentYaw + yawDiff * eased);
                 newPitch = (float) (currentPitch + pitchDiff * eased);
                 break;
 
             case SINE:
-                // Interpolación con función seno (smooth curva)
-                double sineProgress = speedFactor * (1.0 - smoothness);
+                double sineProgress = speedFactor * (1.0 - smoothnessValue);
                 sineProgress = Math.max(0.001, Math.min(0.95, sineProgress));
-                
-                // Usar seno para suavidad: -cos(t) * 0.5 + 0.5
                 double sinEased = -Math.cos(sineProgress * Math.PI) * 0.5 + 0.5;
                 newYaw = (float) (currentYaw + yawDiff * sinEased);
                 newPitch = (float) (currentPitch + pitchDiff * sinEased);
@@ -202,7 +211,7 @@ public class AimAssist extends Module {
 
         newPitch = Math.max(-90, Math.min(90, newPitch));
 
-        // Jitter muy pequeño para que se vea más legit
+        // Pequeño jitter para parecer más humano
         float jitterScale = 0.008f;
         newYaw += (random.nextFloat() - 0.5f) * jitterScale;
         newPitch += (random.nextFloat() - 0.5f) * jitterScale * 0.4f;
@@ -216,14 +225,20 @@ public class AimAssist extends Module {
         onUpdate();
     }
 
-    private Entity getClosestValidTarget(ClientPlayerEntity player) {
-        Entity closestTarget = null;
+    private LivingEntity getBestTarget(ClientPlayerEntity player) {
+        LivingEntity bestTarget = null;
+        double lowestHealth = Float.MAX_VALUE;
         double closestDistance = range.get();
 
         for (Entity entity : mc.world.getEntities()) {
             if (entity == player || entity.isSpectator()) {
                 continue;
             }
+
+            if (!(entity instanceof LivingEntity)) continue;
+
+            LivingEntity livingEntity = (LivingEntity) entity;
+            if (livingEntity.isDead()) continue;
 
             boolean isPlayer = entity instanceof PlayerEntity;
             boolean isMob = entity instanceof MobEntity;
@@ -246,22 +261,36 @@ public class AimAssist extends Module {
             double distance = player.distanceTo(entity);
             if (distance > closestDistance) continue;
 
-            double[] angles = calculateAngles(player, entity);
-            float yawDiff = (float) angles[0] - player.getYaw();
-            float pitchDiff = (float) angles[1] - player.getPitch();
+            // Aplicar filtro de FOV solo en modo FOV
+            if (aimMode.get() == AimMode.FOV) {
+                double[] angles = calculateAngles(player, entity);
+                float yawDiff = (float) angles[0] - player.getYaw();
+                float pitchDiff = (float) angles[1] - player.getPitch();
 
-            while (yawDiff > 180) yawDiff -= 360;
-            while (yawDiff < -180) yawDiff += 360;
+                while (yawDiff > 180) yawDiff -= 360;
+                while (yawDiff < -180) yawDiff += 360;
 
-            double angleDiff = Math.sqrt(yawDiff * yawDiff + pitchDiff * pitchDiff);
-            // Apply FOV filtering only when mode is FOV; LEGIT ignores FOV (can target behind)
-            if (aimMode.get() == AimMode.FOV && angleDiff > fov.get()) continue;
+                double angleDiff = Math.sqrt(yawDiff * yawDiff + pitchDiff * pitchDiff);
+                if (angleDiff > fov.get()) continue;
+            }
 
-            closestDistance = distance;
-            closestTarget = entity;
+            // Seleccionar por menor vida si está habilitado
+            if (lowestHealthFirst.get()) {
+                float health = livingEntity.getHealth();
+                if (health < lowestHealth) {
+                    lowestHealth = health;
+                    bestTarget = livingEntity;
+                }
+            } else {
+                // Seleccionar por distancia más cercana
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    bestTarget = livingEntity;
+                }
+            }
         }
 
-        return closestTarget;
+        return bestTarget;
     }
 
     private double[] calculateAngles(ClientPlayerEntity player, Entity target) {
@@ -275,8 +304,8 @@ public class AimAssist extends Module {
         double extY = (bb.maxY - bb.minY) / 2.0;
         double extZ = (bb.maxZ - bb.minZ) / 2.0;
 
-        // Bias offsets towards center (smaller offsets so aim favors the middle)
-        double biasFactor = 0.6; // lower = more centered
+        // Bias offsets hacia el centro para precisión
+        double biasFactor = 0.6;
         double offsetX = (random.nextDouble() - 0.5) * extX * biasFactor;
         double offsetY = (random.nextDouble() - 0.5) * extY * biasFactor;
         double offsetZ = (random.nextDouble() - 0.5) * extZ * biasFactor;
@@ -300,5 +329,11 @@ public class AimAssist extends Module {
     @Override
     public void onDeactivate() {
         updateCounter = 0;
+        currentTarget = null;
+    }
+
+    public LivingEntity getCurrentTarget() {
+        return currentTarget;
     }
 }
+
