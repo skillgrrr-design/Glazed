@@ -84,8 +84,26 @@ public class AutoPot extends Module {
         .build()
     );
 
+    private final Setting<Boolean> autoReturnSword = sgGeneral.add(new BoolSetting.Builder()
+        .name("auto-return-sword")
+        .description("Retorna automáticamente a la espada después de usar poción")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Integer> swordSlot = sgGeneral.add(new IntSetting.Builder()
+        .name("sword-slot")
+        .description("Slot donde está la espada (0-8)")
+        .defaultValue(0)
+        .min(0)
+        .sliderMax(8)
+        .build()
+    );
+
     private int useDelay = 0;
+    private int returnDelay = 0;
     private int targetSlot = -1;
+    private int lastUsedSlot = -1;
     private float targetPitch = 90f;
     private float targetYaw = 0f;
     private float lastYaw = 0f;
@@ -100,18 +118,29 @@ public class AutoPot extends Module {
     @Override
     public void onDeactivate() {
         useDelay = 0;
+        returnDelay = 0;
         targetSlot = -1;
+        lastUsedSlot = -1;
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
         if (mc.player == null) return;
 
+        // Manejo del retorno automático a espada
+        if (returnDelay > 0) {
+            returnDelay--;
+            if (returnDelay == 0 && autoReturnSword.get() && lastUsedSlot != -1) {
+                returnToSword();
+            }
+            return;
+        }
+
         float health = mc.player.getHealth() + mc.player.getAbsorptionAmount();
-        // Si la salud está por debajo del umbral normal, o si una predicción
-        // indica que el próximo golpe podría matarnos (o dejarnos a <= 3 corazones), potear.
         float predicted = predictNextHitDamage();
-        boolean willBeLow = (health - predicted) <= 6.0f; // 3 corazones = 6 health
+        boolean willBeLow = (health - predicted) <= 6.0f;
+        
+        // Usar poción SI: salud baja || se predice daño grave
         if (health > healthThreshold.get() && !willBeLow) return;
 
         if (useDelay > 0) {
@@ -135,15 +164,19 @@ public class AutoPot extends Module {
             return;
         }
 
-        // Aplicar rotación suave
-        applySmoothedRotation();
-
-        // Usar poción cuando la rotación esté lista
-        if (isRotationReady()) {
-            usePotionAtSlot(potionSlot);
-            int delayRange = maxDelay.get() - minDelay.get();
-            useDelay = minDelay.get() + (delayRange > 0 ? ThreadLocalRandom.current().nextInt(delayRange) : 0);
-        }
+        // ========== AUTOPOT COMPLETAMENTE AUTOMÁTICO ==========
+        // NO esperar a que la rotación esté lista, usar directamente
+        usePotionAtSlotAuto(potionSlot);
+        
+        // Guardar slot para retorno automático
+        lastUsedSlot = potionSlot;
+        
+        // Delay antes de intentar siguiente poción
+        int delayRange = maxDelay.get() - minDelay.get();
+        useDelay = minDelay.get() + (delayRange > 0 ? ThreadLocalRandom.current().nextInt(delayRange) : 0);
+        
+        // Tiempo para retornar a espada
+        returnDelay = 8;
     }
 
     private int findPotionInHotbar() {
@@ -272,6 +305,49 @@ public class AutoPot extends Module {
             mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
             mc.getNetworkHandler().sendPacket(new PlayerInteractItemC2SPacket(Hand.MAIN_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
             mc.player.swingHand(Hand.MAIN_HAND);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Usar poción INMEDIATAMENTE sin esperar rotación (AUTOPOT COMPLETAMENTE AUTOMÁTICO)
+     */
+    private void usePotionAtSlotAuto(int slot) {
+        try {
+            // Cambiar a slot de poción
+            mc.player.getInventory().selectedSlot = slot;
+            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+            
+            // Usar con la rotación actual (sin esperar)
+            mc.getNetworkHandler().sendPacket(
+                new PlayerInteractItemC2SPacket(
+                    Hand.MAIN_HAND, 
+                    0, 
+                    mc.player.getYaw(), 
+                    Math.min(mc.player.getPitch(), 90f)  // Altura hacia arriba pero realista
+                )
+            );
+            mc.player.swingHand(Hand.MAIN_HAND);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Retornar automáticamente a la espada
+     */
+    private void returnToSword() {
+        try {
+            if (mc.player == null) return;
+            
+            int swordIdx = swordSlot.get();
+            
+            // Verificar que hay espada en ese slot
+            ItemStack swordStack = mc.player.getInventory().getStack(swordIdx);
+            if (swordStack == null || swordStack.isEmpty()) return;
+            
+            // Cambiar a espada
+            mc.player.getInventory().selectedSlot = swordIdx;
+            mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(swordIdx));
         } catch (Throwable ignored) {
         }
     }
