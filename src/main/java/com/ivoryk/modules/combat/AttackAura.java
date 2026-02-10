@@ -19,6 +19,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.SwordItem;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameMode;
 
 import java.lang.reflect.Method;
@@ -201,6 +202,23 @@ public class AttackAura extends Module {
         .name("smart-crit")
         .description("Forzar crítico saltando ligeramente")
         .defaultValue(true)
+        .build()
+    );
+
+    // Prediction
+    private final Setting<Boolean> prediction = sgAiming.add(new BoolSetting.Builder()
+        .name("movement-prediction")
+        .description("Predecir movimiento del objetivo para lead aim")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Double> predictionFactor = sgAiming.add(new DoubleSetting.Builder()
+        .name("prediction-factor")
+        .description("Multiplicador de predicción (más alto = mirar delante del objetivo)")
+        .defaultValue(1.0)
+        .min(0.0)
+        .max(3.0)
         .build()
     );
 
@@ -508,6 +526,20 @@ public class AttackAura extends Module {
         double targetX = centerX + offsetX;
         double targetY = centerY + offsetY;
         double targetZ = centerZ + offsetZ;
+
+        // Predicción simple: extrapolar posición según la velocidad del objetivo
+        if (prediction.get()) {
+            try {
+                Vec3d vel = target.getVelocity();
+                double dist = mc.player.distanceTo(target);
+                // Lead proporcional a la distancia y al factor de configuración
+                double lead = (dist / 5.0) * predictionFactor.get();
+
+                targetX += vel.x * lead;
+                targetY += vel.y * lead;
+                targetZ += vel.z * lead;
+            } catch (Throwable ignored) {}
+        }
 
         double dx = targetX - mc.player.getX();
         double dy = targetY - mc.player.getEyeY();

@@ -5,6 +5,13 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.CreeperEntity;
+import net.minecraft.entity.mob.EndermanEntity;
+import net.minecraft.entity.mob.SpiderEntity;
+import net.minecraft.entity.mob.SkeletonEntity;
+import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.PlayerInteractItemC2SPacket;
@@ -101,7 +108,11 @@ public class AutoPot extends Module {
         if (mc.player == null) return;
 
         float health = mc.player.getHealth() + mc.player.getAbsorptionAmount();
-        if (health > healthThreshold.get()) return;
+        // Si la salud está por debajo del umbral normal, o si una predicción
+        // indica que el próximo golpe podría matarnos (o dejarnos a <= 3 corazones), potear.
+        float predicted = predictNextHitDamage();
+        boolean willBeLow = (health - predicted) <= 6.0f; // 3 corazones = 6 health
+        if (health > healthThreshold.get() && !willBeLow) return;
 
         if (useDelay > 0) {
             useDelay--;
@@ -157,6 +168,51 @@ public class AutoPot extends Module {
 
     private boolean isPotionItem(net.minecraft.item.Item item) {
         return item == Items.POTION || item == Items.SPLASH_POTION || item == Items.LINGERING_POTION;
+    }
+
+    // ==================== Predicción de daño ====================
+    // Estima el daño que una entidad cercana podría hacer en el siguiente golpe.
+    private float predictNextHitDamage() {
+        if (mc.world == null || mc.player == null) return 0f;
+
+        float maxPred = 0f;
+        for (Entity e : mc.world.getEntities()) {
+            if (e == mc.player || !(e instanceof LivingEntity)) continue;
+            LivingEntity le = (LivingEntity) e;
+
+            double dist = mc.player.distanceTo(le);
+            // Solo considerar entidades en rango cuerpo a cuerpo razonable
+            if (dist > 5.0) continue;
+
+            // Si la entidad claramente no nos puede atacar, ignórala
+            if (le.isDead() || le.isRemoved()) continue;
+
+            float est = estimateEntityDamage(le);
+
+            // Si la entidad nos está mirando y cerca, aumentar prioridad
+            double dx = mc.player.getX() - le.getX();
+            double dz = mc.player.getZ() - le.getZ();
+            double lookDot = Math.cos(Math.toRadians(Math.abs(le.getYaw() - mc.player.getYaw())));
+            if (lookDot > 0.5 && dist < 4.0) est *= 1.1f;
+
+            if (est > maxPred) maxPred = est;
+        }
+
+        return maxPred;
+    }
+
+    // Estimación simple por tipo de entidad / jugador
+    private float estimateEntityDamage(LivingEntity e) {
+        // Jugadores suelen hacer más daño (armadura no considerada)
+        if (e instanceof net.minecraft.entity.player.PlayerEntity) return 8.0f;
+        if (e instanceof net.minecraft.entity.mob.SkeletonEntity) return 5.0f;
+        if (e instanceof net.minecraft.entity.mob.ZombieEntity) return 6.0f;
+        if (e instanceof net.minecraft.entity.mob.EndermanEntity) return 9.0f;
+        if (e instanceof net.minecraft.entity.mob.SpiderEntity) return 4.0f;
+        if (e instanceof net.minecraft.entity.mob.CreeperEntity) return 12.0f;
+
+        // Fallback conservador
+        return 5.0f;
     }
 
     private void movePotionToHotbar(int potionSlot) {

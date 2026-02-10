@@ -21,6 +21,7 @@ public class IvoryKAddon extends MeteorAddon {
         Modules.get().add(new NoSlow());
         Modules.get().add(new AutoRefill());
         Modules.get().add(new AutoPot());
+        Modules.get().add(new AttackAura());
         Modules.get().add(new ESPPlus());
     }
 

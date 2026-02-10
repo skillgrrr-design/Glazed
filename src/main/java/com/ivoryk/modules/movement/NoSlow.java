@@ -115,6 +115,16 @@ public class NoSlow extends Module {
 
         if (!canNoSlow()) return; // central validation gate
 
+        // Intento más proactivo: mantener sprint activado y enviar paquetes que
+        // suelen evitar la ralentización en servidores (slot update + interact).
+        try {
+            mc.player.setSprinting(true);
+            if (mc.getNetworkHandler() != null) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().selectedSlot));
+                mc.getNetworkHandler().sendPacket(new PlayerInteractItemC2SPacket(Hand.MAIN_HAND, 0, mc.player.getYaw(), mc.player.getPitch()));
+            }
+        } catch (Throwable ignored) {}
+
         // delegate to per-mode handlers for clarity
         switch (mode.get()) {
             case NCP:

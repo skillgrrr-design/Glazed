@@ -123,10 +123,15 @@ public class AutoRefill extends Module {
     private void performSwap(int hotbarSlot, int invSlot) {
         try {
             int syncId = mc.player.playerScreenHandler.syncId;
-            // Click en el slot del inventario
-            mc.interactionManager.clickSlot(syncId, invSlot, 0, SlotActionType.PICKUP, mc.player);
-            // Click en el slot de la hotbar
-            mc.interactionManager.clickSlot(syncId, hotbarSlot, 0, SlotActionType.PICKUP, mc.player);
+            // Si el slot de hotbar está vacío, intento un QUICK_MOVE (shift-click)
+            if (mc.player.getInventory().getStack(hotbarSlot).isEmpty()) {
+                mc.interactionManager.clickSlot(syncId, invSlot, 0, SlotActionType.QUICK_MOVE, mc.player);
+            } else {
+                // Secuencia segura: pickup fuente -> pickup hotbar -> pickup fuente (devuelve el cursor vacío)
+                mc.interactionManager.clickSlot(syncId, invSlot, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(syncId, hotbarSlot, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(syncId, invSlot, 0, SlotActionType.PICKUP, mc.player);
+            }
         } catch (Throwable ignored) {
         }
     }
