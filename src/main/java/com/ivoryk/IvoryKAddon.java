@@ -3,6 +3,7 @@ package com.ivoryk;
 import com.ivoryk.modules.combat.*;
 import com.ivoryk.modules.movement.*;
 import com.ivoryk.modules.misc.*;
+import com.ivoryk.modules.render.*;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.orbit.EventHandler;
@@ -22,7 +23,7 @@ public class IvoryKAddon extends MeteorAddon {
         Modules.get().add(new AutoRefill());
         Modules.get().add(new AutoPot());
         Modules.get().add(new AttackAura());
-        Modules.get().add(new ESPPlus());
+        Modules.get().add(new JumpCircles());
     }
 
     @EventHandler
