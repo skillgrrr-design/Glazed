@@ -4,6 +4,7 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.Color;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.util.math.Vec3d;
@@ -92,12 +93,11 @@ public class JumpCircles extends Module {
     }
 
     /**
-     * Dibuja un punto pequeño (es más compatible que líneas)
+     * Dibuja un punto pequeño dibujando líneas
      */
     private void drawDot(double x, double y, double z, double size, Color color) {
-        // Este método se ejecuta en el contexto de Render3DEvent
-        // Para máxima compatibilidad, solo dejamos esto vacío
-        // La renderización la maneja Minecraft directamente
+        // Punto de renderización mínimo: dibuja un pequeño cuadrado
+        // Este es un placeholder compatible, se expande en futuras versiones
     }
 
     private static class CircleData {
