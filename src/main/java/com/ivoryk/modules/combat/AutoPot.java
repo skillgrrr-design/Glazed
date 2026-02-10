@@ -311,6 +311,7 @@ public class AutoPot extends Module {
 
     /**
      * Usar poción INMEDIATAMENTE sin esperar rotación (AUTOPOT COMPLETAMENTE AUTOMÁTICO)
+     * Apunta ARRIBA siempre para usar la poción en cualquier dirección
      */
     private void usePotionAtSlotAuto(int slot) {
         try {
@@ -318,13 +319,14 @@ public class AutoPot extends Module {
             mc.player.getInventory().selectedSlot = slot;
             mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
             
-            // Usar con la rotación actual (sin esperar)
+            // Usar SIEMPRE apuntando arriba (pitch = 90) para que la poción se use
+            // sin importar dónde esté viendo el jugador
             mc.getNetworkHandler().sendPacket(
                 new PlayerInteractItemC2SPacket(
                     Hand.MAIN_HAND, 
                     0, 
-                    mc.player.getYaw(), 
-                    Math.min(mc.player.getPitch(), 90f)  // Altura hacia arriba pero realista
+                    mc.player.getYaw(),  // Yaw actual es irrelevante para pociones
+                    90f  // SIEMPRE 90 grados arriba
                 )
             );
             mc.player.swingHand(Hand.MAIN_HAND);

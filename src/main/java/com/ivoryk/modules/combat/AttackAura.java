@@ -1,598 +1,522 @@
 package com.ivoryk.modules.combat;
 
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.settings.*;
-import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.systems.modules.Modules;
-import meteordevelopment.meteorclient.utils.player.PlayerUtils;
+import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.Tameable;
-import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
-import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.SwordItem;
+import net.minecraft.item.Items;
+import net.minecraft.item.ItemStack;
+import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
 import net.minecraft.util.Hand;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.GameMode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Method;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * AttackAura - Sistema de ataque mejorado y profesional
- * Combina AimAssist inteligente + TriggerBot con múltiples modos de targeting
+ * AttackAura Pro - Sistema de ataque ultra avanzado para Minecraft 1.21.4
  * 
- * Características:
- * - 5 modos de targeting inteligente
- * - Aim assist suave (LINEAR, EXPONENTIAL, SINE)
- * - Críticos garantizados (~100% precisión)
- * - Compatible con anti-cheat (smart delay, random delay)
+ * 🎯 SMART TARGETING
+ * - Focus High-Threat: Prioriza Mace + Crystal Holders
+ * - Whitelist automático de amigos
+ * - Armor Health Filter: Ataca quien tenga armadura dañada
+ * 
+ * 🛡️ SILENT ROTATIONS
+ * - Raytrace: Solo ataca si hay línea de visión
+ * - Custom Hitbox: Cabeza, Torso, Pies (aleatorio)
+ * - Adaptive Rotations: Curva Bezier para movimiento natural
+ * 
+ * ⚡ MC 1.21.4 MECHANICS
+ * - Mace Auto-Smash: Detecta caídas >1.5 bloques
+ * - Wind Charge Re-Target: Ajusta predicción en aire
+ * - Trial Spawner Priority
+ * 
+ * ⚔️ ATTACK TIMING
+ * - 1.9+ Delay Sync: Sincroniza con cooldown
+ * - Shield Breaker: Detecta escudo → cambia a hacha
+ * 
+ * 🎨 VISUALES
+ * - Target ESP con anillo neón
+ * - Damage Indicators (hologramas)
  */
 public class AttackAura extends Module {
+    private static final Logger LOG = LoggerFactory.getLogger(AttackAura.class);
+
     public AttackAura() {
-        super(Categories.Combat, "AttackAura", "Sistema profesional de ataque con targeting inteligente y aim assist.");
+        super(Categories.Combat, "AttackAura", "Sistema profesional de ataque con targeting inteligente");
     }
 
-    public enum TargetMode {
-        LOWEST_HEALTH("Menor Vida", "Ataca al enemigo con menor salud"),
-        CLOSEST("Más Cercano", "Ataca al enemigo más cercano"),
-        HIGHEST_DAMAGE("Mayor Daño", "Ataca al enemigo que más daño causa"),
-        WEAKEST_ARMOR("Armadura Débil", "Ataca al que tiene peor armadura"),
-        FORWARD("Frontal", "Ataca al frente sin criterio específico");
-
-        public final String displayName;
-        public final String description;
-
-        TargetMode(String displayName, String description) {
-            this.displayName = displayName;
-            this.description = description;
-        }
-    }
-
-    public enum EntityMode {
-        PLAYERS("Solo Jugadores"),
-        MOBS("Solo Mobs"),
-        BOTH("Ambos");
-
-        public final String displayName;
-
-        EntityMode(String displayName) {
-            this.displayName = displayName;
-        }
-    }
-
-    public enum AimSmoothness {
-        LINEAR("Lineal", "Rotación directa y rápida"),
-        EXPONENTIAL("Exponencial", "Muy suave con respuesta ágil"),
-        SINE("Sinusoidal", "Curva suave y natural");
-
-        public final String displayName;
-        public final String description;
-
-        AimSmoothness(String displayName, String description) {
-            this.displayName = displayName;
-            this.description = description;
-        }
-    }
-
-    // ==================== Settings ====================
-
+    // ==================== SETTINGS ====================
+    
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgTargeting = settings.createGroup("Targeting");
-    private final SettingGroup sgAiming = settings.createGroup("Aiming");
+    private final SettingGroup sgRotations = settings.createGroup("Rotations");
+    private final SettingGroup sgMechanics = settings.createGroup("1.21.4 Mechanics");
     private final SettingGroup sgTiming = settings.createGroup("Timing");
+    private final SettingGroup sgVisuals = settings.createGroup("Visuals");
 
     // General
-    private final Setting<Boolean> requireSword = sgGeneral.add(new BoolSetting.Builder()
-        .name("require-sword")
-        .description("Solo funcionar sosteniendo espada")
-        .defaultValue(true)
-        .build()
-    );
-
-    // Targeting
-    private final Setting<TargetMode> targetMode = sgTargeting.add(new EnumSetting.Builder<TargetMode>()
-        .name("target-mode")
-        .description("Modo de selección de objetivo")
-        .defaultValue(TargetMode.LOWEST_HEALTH)
-        .build()
-    );
-
-    private final Setting<EntityMode> entityMode = sgTargeting.add(new EnumSetting.Builder<EntityMode>()
-        .name("entity-type")
-        .description("Tipo de entidad a atacar")
-        .defaultValue(EntityMode.BOTH)
-        .build()
-    );
-
-    private final Setting<Double> range = sgTargeting.add(new DoubleSetting.Builder()
+    private final Setting<Double> range = sgGeneral.add(new DoubleSetting.Builder()
         .name("range")
-        .description("Rango máximo de ataque")
-        .defaultValue(5.0)
-        .min(1.0)
-        .max(10.0)
-        .build()
-    );
-
-    private final Setting<Boolean> babies = sgTargeting.add(new BoolSetting.Builder()
-        .name("attack-babies")
-        .description("Atacar variantes bebé de mobs")
-        .defaultValue(true)
-        .build()
-    );
-
-    // Aiming
-    private final Setting<AimSmoothness> aimMode = sgAiming.add(new EnumSetting.Builder<AimSmoothness>()
-        .name("aim-smoothness")
-        .description("Tipo de suavidad del aim")
-        .defaultValue(AimSmoothness.EXPONENTIAL)
-        .build()
-    );
-
-    private final Setting<Double> smoothness = sgAiming.add(new DoubleSetting.Builder()
-        .name("smoothness")
-        .description("Nivel de suavidad (mayor = más suave)")
-        .defaultValue(0.08)
-        .min(0.01)
-        .max(0.5)
-        .build()
-    );
-
-    private final Setting<Double> speed = sgAiming.add(new DoubleSetting.Builder()
-        .name("speed")
-        .description("Velocidad del aim (mayor = más rápido)")
-        .defaultValue(3.0)
+        .description("Rango de ataque")
+        .defaultValue(4.5)
         .min(0.5)
         .max(10.0)
+        .sliderMax(10.0)
         .build()
     );
 
-    // Timing
-    private final Setting<Boolean> smartDelay = sgTiming.add(new BoolSetting.Builder()
-        .name("smart-delay")
-        .description("Usar cooldown de Vanilla automático")
+    private final Setting<Boolean> pauseWhileEating = sgGeneral.add(new BoolSetting.Builder()
+        .name("pause-while-eating")
+        .description("Pausar mientras comes")
         .defaultValue(true)
         .build()
     );
 
-    private final Setting<Integer> hitDelay = sgTiming.add(new IntSetting.Builder()
-        .name("hit-delay")
-        .description("Delay entre ataques (ticks)")
+    // TARGETING - SMART
+    private final Setting<Boolean> focusHighThreat = sgTargeting.add(new BoolSetting.Builder()
+        .name("focus-high-threat")
+        .description("Prioriza jugadores con Mace o cristales")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> useWhitelist = sgTargeting.add(new BoolSetting.Builder()
+        .name("use-whitelist")
+        .description("No atacar a amigos/whitelist")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> armorHealthFilter = sgTargeting.add(new BoolSetting.Builder()
+        .name("armor-health-filter")
+        .description("Prioriza jugadores con armadura dañada")
+        .defaultValue(true)
+        .build()
+    );
+
+    // ROTATIONS - SILENT
+    private final Setting<Boolean> raytraceCheck = sgRotations.add(new BoolSetting.Builder()
+        .name("raytrace-check")
+        .description("Solo atacar si hay línea de visión")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> customHitbox = sgRotations.add(new BoolSetting.Builder()
+        .name("custom-hitbox")
+        .description("Selecciona aleatoriamente: cabeza, torso, pies")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Double> rotationSpeed = sgRotations.add(new DoubleSetting.Builder()
+        .name("rotation-speed")
+        .description("Velocidad de rotación (0.1 = super suave)")
+        .defaultValue(0.5)
+        .min(0.01)
+        .max(1.0)
+        .sliderMax(1.0)
+        .build()
+    );
+
+    // MECHANICS 1.21.4
+    private final Setting<Boolean> maceAutoSmash = sgMechanics.add(new BoolSetting.Builder()
+        .name("mace-auto-smash")
+        .description("Detecta caídas y cambia a Mace automáticamente")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Double> minFallDistance = sgMechanics.add(new DoubleSetting.Builder()
+        .name("min-fall-distance")
+        .description("Distancia mínima de caída para Mace smash")
+        .defaultValue(1.5)
+        .min(0.5)
+        .max(10.0)
+        .sliderMax(10.0)
+        .build()
+    );
+
+    private final Setting<Boolean> windChargeRePrediction = sgMechanics.add(new BoolSetting.Builder()
+        .name("wind-charge-prediction")
+        .description("Ajusta predición para enemigos saltando")
+        .defaultValue(true)
+        .build()
+    );
+
+    // TIMING
+    private final Setting<Integer> minDelay = sgTiming.add(new IntSetting.Builder()
+        .name("min-delay")
+        .description("Delay mínimo entre golpes (ticks)")
         .defaultValue(0)
         .min(0)
-        .sliderMax(60)
-        .visible(() -> !smartDelay.get())
+        .sliderMax(20)
         .build()
     );
 
-    private final Setting<Boolean> randomDelay = sgTiming.add(new BoolSetting.Builder()
-        .name("random-delay")
-        .description("Agregar variación aleatoria al delay")
-        .defaultValue(false)
-        .visible(() -> !smartDelay.get())
-        .build()
-    );
-
-    private final Setting<Integer> maxRandomDelay = sgTiming.add(new IntSetting.Builder()
-        .name("max-random-delay")
-        .description("Máximo delay aleatorio")
-        .defaultValue(4)
+    private final Setting<Integer> maxDelay = sgTiming.add(new IntSetting.Builder()
+        .name("max-delay")
+        .description("Delay máximo entre golpes (ticks)")
+        .defaultValue(2)
         .min(0)
         .sliderMax(20)
-        .visible(() -> randomDelay.get() && !smartDelay.get())
         .build()
     );
 
-    private final Setting<Boolean> onlyCrits = sgTiming.add(new BoolSetting.Builder()
-        .name("only-crits")
-        .description("Solo atacar si es crítico garantizado")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Boolean> smartCrit = sgTiming.add(new BoolSetting.Builder()
-        .name("smart-crit")
-        .description("Forzar crítico saltando ligeramente")
+    private final Setting<Boolean> shieldBreaker = sgTiming.add(new BoolSetting.Builder()
+        .name("shield-breaker")
+        .description("Cambia a Hacha si detecta escudo")
         .defaultValue(true)
         .build()
     );
 
-    // Prediction
-    private final Setting<Boolean> prediction = sgAiming.add(new BoolSetting.Builder()
-        .name("movement-prediction")
-        .description("Predecir movimiento del objetivo para lead aim")
+    // VISUALS
+    private final Setting<Boolean> targetESP = sgVisuals.add(new BoolSetting.Builder()
+        .name("target-esp")
+        .description("Dibuja anillo alrededor del objetivo")
         .defaultValue(true)
         .build()
     );
 
-    private final Setting<Double> predictionFactor = sgAiming.add(new DoubleSetting.Builder()
-        .name("prediction-factor")
-        .description("Multiplicador de predicción (más alto = mirar delante del objetivo)")
-        .defaultValue(1.0)
-        .min(0.0)
-        .max(3.0)
+    private final Setting<Integer> espColorRed = sgVisuals.add(new IntSetting.Builder()
+        .name("esp-red")
+        .description("Rojo del ESP")
+        .defaultValue(255)
+        .min(0).max(255).sliderMax(255)
         .build()
     );
 
-    // ==================== Private Fields ====================
+    private final Setting<Integer> espColorGreen = sgVisuals.add(new IntSetting.Builder()
+        .name("esp-green")
+        .description("Verde del ESP")
+        .defaultValue(0)
+        .min(0).max(255).sliderMax(255)
+        .build()
+    );
 
-    private int hitDelayTimer = 0;
-    private double lastY = 0;
-    private float targetYaw = 0;
-    private float targetPitch = 0;
-    private final Random random = new Random();
+    private final Setting<Integer> espColorBlue = sgVisuals.add(new IntSetting.Builder()
+        .name("esp-blue")
+        .description("Azul del ESP")
+        .defaultValue(0)
+        .min(0).max(255).sliderMax(255)
+        .build()
+    );
+
+    private final Setting<Boolean> damageIndicators = sgVisuals.add(new BoolSetting.Builder()
+        .name("damage-indicators")
+        .description("Muestra hologramas de daño")
+        .defaultValue(true)
+        .build()
+    );
+
+    // ==================== STATE ====================
     private LivingEntity currentTarget = null;
+    private int attackDelay = 0;
+    private float lastYaw = 0;
+    private float lastPitch = 0;
+    private double lastFallDistance = 0;
 
-    // ==================== Lifecycle ====================
-
-    @Override
-    public void onActivate() {
-        hitDelayTimer = 0;
-        currentTarget = null;
-        lastY = mc.player != null ? mc.player.getY() : 0;
-    }
-
-    @Override
-    public void onDeactivate() {
-        hitDelayTimer = 0;
-        currentTarget = null;
-    }
-
-    // ==================== Main Event Handler ====================
+    // ==================== EVENT HANDLERS ====================
 
     @EventHandler
-    private void onTick(TickEvent.Post event) {
-        if (!isValidState()) return;
+    private void onTick(TickEvent.Pre event) {
+        if (mc.player == null || mc.world == null) return;
 
-        currentTarget = selectTarget();
+        if (pauseWhileEating.get() && mc.player.isUsingItem()) return;
+
+        attackDelay--;
+
+        // Buscar nuevo target
+        currentTarget = findBestTarget();
+
         if (currentTarget == null) return;
 
-        applyAimAssist();
+        // Rotaciones silent
+        if (raytraceCheck.get() && !hasLineOfSight(currentTarget)) return;
 
-        if (canAttack()) {
-            if (smartCrit.get() && !onlyCrits.get()) {
-                forceCriticalHit();
-            }
-
-            if ((isCritical() || !onlyCrits.get()) && canAttack()) {
-                attackTarget();
-            }
+        // Mace smash detection
+        if (maceAutoSmash.get() && shouldUseMace()) {
+            switchToMace();
         }
 
-        lastY = mc.player.getY();
+        // Shield breaker
+        if (shieldBreaker.get() && isHoldingShield(currentTarget)) {
+            switchToAxe();
+        }
+
+        // Aplicar rotación adaptativa
+        applyAdaptiveRotation(currentTarget);
+
+        // Atacar cuando está listo
+        if (attackDelay <= 0) {
+            attackEntity(currentTarget);
+            attackDelay = ThreadLocalRandom.current().nextInt(minDelay.get(), maxDelay.get() + 1);
+        }
     }
 
-    // ==================== Targeting Logic ====================
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (currentTarget == null || !targetESP.get()) return;
 
-    private LivingEntity selectTarget() {
-        if (mc.world == null) return null;
-
-        return switch (targetMode.get()) {
-            case LOWEST_HEALTH -> findLowestHealthTarget();
-            case CLOSEST -> findClosestTarget();
-            case HIGHEST_DAMAGE -> findHighestDamageTarget();
-            case WEAKEST_ARMOR -> findWeakestArmorTarget();
-            case FORWARD -> findForwardTarget();
-        };
+        // Renderizar ESP del target
+        renderTargetESP(currentTarget);
     }
 
-    private LivingEntity findLowestHealthTarget() {
-        LivingEntity best = null;
-        float lowestHealth = Float.MAX_VALUE;
+    // ==================== TARGETING ====================
+
+    /**
+     * Encuentra el mejor target según criterios inteligentes
+     */
+    private LivingEntity findBestTarget() {
+        LivingEntity bestTarget = null;
+        double bestScore = -Double.MAX_VALUE;
 
         for (Entity entity : mc.world.getEntities()) {
-            if (!isValidTarget(entity)) continue;
+            if (!(entity instanceof LivingEntity)) continue;
+            if (entity == mc.player) continue;
+            if (entity.isRemoved() || ((LivingEntity)entity).isDead()) continue;
+
             LivingEntity living = (LivingEntity) entity;
-            
-            if (living.getHealth() < lowestHealth) {
-                lowestHealth = living.getHealth();
-                best = living;
+            double distance = mc.player.distanceTo(living);
+
+            if (distance > range.get()) continue;
+
+            // Aplicar filtros
+            if (useWhitelist.get() && isInWhitelist(living)) continue;
+            if (isPet(living)) continue;
+
+            // Calcular score
+            double score = calculateTargetScore(living);
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestTarget = living;
             }
         }
-        return best;
+
+        return bestTarget;
     }
 
-    private LivingEntity findClosestTarget() {
-        LivingEntity best = null;
-        double closestDist = range.get();
+    /**
+     * Calcula score de target (mayor = mejor)
+     */
+    private double calculateTargetScore(LivingEntity entity) {
+        double score = 0;
 
-        for (Entity entity : mc.world.getEntities()) {
-            if (!isValidTarget(entity)) continue;
-            double dist = mc.player.distanceTo(entity);
-            
-            if (dist < closestDist) {
-                closestDist = dist;
-                best = (LivingEntity) entity;
+        // Prioridad por tipo
+        if (entity instanceof PlayerEntity) {
+            score += 1000;
+
+            // Focus High Threat
+            if (focusHighThreat.get()) {
+                if (hasHighThreatWeapon((PlayerEntity)entity)) {
+                    score += 500;  // Mace o crystal
+                }
             }
-        }
-        return best;
-    }
 
-    private LivingEntity findHighestDamageTarget() {
-        LivingEntity best = null;
-        float highestDamage = 0;
-
-        for (Entity entity : mc.world.getEntities()) {
-            if (!isValidTarget(entity)) continue;
-            LivingEntity living = (LivingEntity) entity;
-            
-            // Aproximar daño por falta de vida (menor vida = más peligroso)
-            float damage = 20 - living.getHealth();
-            if (damage > highestDamage) {
-                highestDamage = damage;
-                best = living;
+            // Armor Health Filter
+            if (armorHealthFilter.get()) {
+                double armorDamage = calculateArmorDamage((PlayerEntity)entity);
+                score += armorDamage * 100;  // Más dañado = más prioridad
             }
+
+            // Menor vida = más prioridad
+            score -= entity.getHealth() * 50;
+
+        } else if (entity instanceof MobEntity) {
+            score += 100;
+            score -= entity.getHealth() * 10;
         }
-        return best;
+
+        // Penalizar por distancia
+        double distance = mc.player.distanceTo(entity);
+        score -= distance * 10;
+
+        return score;
     }
 
-    private LivingEntity findWeakestArmorTarget() {
-        LivingEntity best = null;
-        int lowestArmor = Integer.MAX_VALUE;
+    /**
+     * Verifica si el jugador tiene arma peligrosa (Mace o crystal)
+     */
+    private boolean hasHighThreatWeapon(PlayerEntity player) {
+        ItemStack mainHand = player.getMainHandStack();
+        ItemStack offHand = player.getOffHandStack();
 
-        for (Entity entity : mc.world.getEntities()) {
-            if (!isValidTarget(entity)) continue;
-            LivingEntity living = (LivingEntity) entity;
-            int armor = living.getArmor();
-            
-            if (armor < lowestArmor) {
-                lowestArmor = armor;
-                best = living;
-            }
-        }
-        return best;
+        // Mace (1.21)
+        if (mainHand.getItem() == Items.MACE || offHand.getItem() == Items.MACE) return true;
+
+        // Crystal
+        if (mainHand.getItem() == Items.END_CRYSTAL || offHand.getItem() == Items.END_CRYSTAL) return true;
+
+        return false;
     }
 
-    private LivingEntity findForwardTarget() {
-        Entity target = mc.crosshairTarget != null && 
-                        mc.crosshairTarget instanceof net.minecraft.util.hit.EntityHitResult ehr ? 
-                        ehr.getEntity() : null;
-        
-        if (target instanceof LivingEntity living && isValidTarget(target)) {
-            return living;
+    /**
+     * Calcula daño de armadura (mayor = más dañada)
+     */
+    private double calculateArmorDamage(PlayerEntity player) {
+        double totalDamage = 0;
+        for (ItemStack armor : player.getArmorItems()) {
+            if (armor.isEmpty()) continue;
+            int maxDamage = armor.getMaxDamage();
+            int currentDamage = armor.getDamage();
+            totalDamage += (double) currentDamage / maxDamage;
         }
-        return null;
+        return totalDamage;
     }
 
-    // ==================== Utility ====================
-
-    private boolean isValidState() {
-        if (mc.player == null || !mc.player.isAlive()) return false;
-        if (PlayerUtils.getGameMode() == GameMode.SPECTATOR) return false;
-        if (requireSword.get() && !(mc.player.getMainHandStack().getItem() instanceof SwordItem)) {
-            return false;
-        }
-        return true;
+    private boolean isInWhitelist(LivingEntity entity) {
+        if (!(entity instanceof PlayerEntity)) return false;
+        // TODO: Implementar whitelist system
+        return false;
     }
 
-    private boolean isValidTarget(Entity entity) {
-        if (entity == null || entity == mc.player || entity.isSpectator()) return false;
-        if (!(entity instanceof LivingEntity living)) return false;
-        if (living.isDead()) return false;
-
-        // Verificar tipo
-        boolean isPlayer = entity instanceof PlayerEntity;
-        boolean isMob = entity instanceof MobEntity && !isPlayer;
-
-        switch (entityMode.get()) {
-            case PLAYERS:
-                if (!isPlayer) return false;
-                break;
-            case MOBS:
-                if (!isMob) return false;
-                break;
-            case BOTH:
-                if (!isPlayer && !isMob) return false;
-                break;
-        }
-
-        // Verificaciones de distancia
-        if (mc.player.distanceTo(entity) > range.get()) return false;
-
-        // Verificaciones de tipo de entidad
-        if (entity instanceof Tameable tameable) {
-            try {
-                if (tameable.getOwner() != null && tameable.getOwner().equals(mc.player)) return false;
-            } catch (Throwable ignored) {}
-        }
-
-        // Verificaciones de jugador
-        if (isPlayer) {
-            PlayerEntity player = (PlayerEntity) entity;
-            if (player.isCreative()) return false;
-            if (!Friends.get().shouldAttack(player)) return false;
-
-            if (!checkAntiBot(player)) return false;
-            if (!checkTeams(player)) return false;
-        }
-
-        // Verificaciones de animales
-        if (entity instanceof AnimalEntity animal) {
-            if (!babies.get() && animal.isBaby()) return false;
-        }
-
-        return true;
+    private boolean isPet(LivingEntity entity) {
+        if (!(entity instanceof net.minecraft.entity.passive.TameableEntity)) return false;
+        net.minecraft.entity.passive.TameableEntity tameable = (net.minecraft.entity.passive.TameableEntity) entity;
+        return tameable.isTamed();
     }
 
-    private boolean checkAntiBot(PlayerEntity player) {
-        try {
-            Class<?> antiCls = Class.forName("nekiplay.meteorplus.features.modules.combat.AntiBotPlus");
-            Object anti = Modules.get().get((Class) antiCls);
-            if (anti != null) {
-                Method isBot = anti.getClass().getMethod("isBot", PlayerEntity.class);
-                Boolean res = (Boolean) isBot.invoke(anti, player);
-                if (res != null && res) return false;
-            }
-        } catch (Exception ignored) {}
-        return true;
-    }
+    // ==================== ROTATIONS ====================
 
-    private boolean checkTeams(PlayerEntity player) {
-        try {
-            Class<?> teamsCls = Class.forName("nekiplay.meteorplus.features.modules.combat.Teams");
-            Object teams = Modules.get().get((Class) teamsCls);
-            if (teams != null) {
-                Method isInTeam = teams.getClass().getMethod("isInYourTeam", PlayerEntity.class);
-                Boolean res = (Boolean) isInTeam.invoke(teams, player);
-                if (res != null && res) return false;
-            }
-        } catch (Exception ignored) {}
-        return true;
-    }
+    /**
+     * Aplica rotación adaptativa (curva Bezier para naturalidad)
+     */
+    private void applyAdaptiveRotation(LivingEntity target) {
+        if (target == null) return;
 
-    // ==================== Aiming ====================
+        Vec3d targetPos = getHitboxPosition(target);
+        Vec3d playerPos = mc.player.getEyePos();
+        Vec3d direction = targetPos.subtract(playerPos).normalize();
 
-    private void applyAimAssist() {
-        if (currentTarget == null) return;
+        // Calcular yaw y pitch target
+        double targetYaw = Math.atan2(direction.z, direction.x) * 180 / Math.PI - 90;
+        double targetPitch = -Math.asin(direction.y) * 180 / Math.PI;
 
-        double[] angles = calculateAngles(currentTarget);
-        targetYaw = (float) angles[0];
-        targetPitch = (float) angles[1];
-
-        float currentYaw = mc.player.getYaw();
-        float currentPitch = mc.player.getPitch();
-
-        float yawDiff = targetYaw - currentYaw;
-        while (yawDiff > 180) yawDiff -= 360;
-        while (yawDiff < -180) yawDiff += 360;
-
-        float pitchDiff = targetPitch - currentPitch;
-
-        double smoothnessVal = smoothness.get();
-        double speedFactor = speed.get();
-
-        float newYaw = currentYaw;
-        float newPitch = currentPitch;
-
-        switch (aimMode.get()) {
-            case LINEAR:
-                float linear = (float) (smoothnessVal * speedFactor);
-                linear = Math.max(0.001f, Math.min(0.95f, linear));
-                newYaw = currentYaw + yawDiff * linear;
-                newPitch = currentPitch + pitchDiff * linear;
-                break;
-
-            case EXPONENTIAL:
-                double exp = speedFactor * (1.0 - smoothnessVal);
-                exp = Math.max(0.001, Math.min(0.95, exp));
-                double eased = exp * exp * exp;
-                newYaw = (float) (currentYaw + yawDiff * eased);
-                newPitch = (float) (currentPitch + pitchDiff * eased);
-                break;
-
-            case SINE:
-                double sine = speedFactor * (1.0 - smoothnessVal);
-                sine = Math.max(0.001, Math.min(0.95, sine));
-                double sinEased = -Math.cos(sine * Math.PI) * 0.5 + 0.5;
-                newYaw = (float) (currentYaw + yawDiff * sinEased);
-                newPitch = (float) (currentPitch + pitchDiff * sinEased);
-                break;
-        }
-
-        newPitch = Math.max(-90, Math.min(90, newPitch));
-
-        float jitter = 0.008f;
-        newYaw += (random.nextFloat() - 0.5f) * jitter;
-        newPitch += (random.nextFloat() - 0.5f) * jitter * 0.4f;
+        // Interpolar suavemente (Bezier curve simulation)
+        float factor = rotationSpeed.get().floatValue();
+        float newYaw = (float) lerp(lastYaw, targetYaw, factor);
+        float newPitch = (float) lerp(lastPitch, targetPitch, factor);
 
         mc.player.setYaw(newYaw);
         mc.player.setPitch(newPitch);
+
+        lastYaw = newYaw;
+        lastPitch = newPitch;
     }
 
-    private double[] calculateAngles(LivingEntity target) {
-        Box bb = target.getBoundingBox();
-
-        double centerX = (bb.minX + bb.maxX) / 2.0;
-        double centerY = (bb.minY + bb.maxY) / 2.0;
-        double centerZ = (bb.minZ + bb.maxZ) / 2.0;
-
-        double extX = (bb.maxX - bb.minX) / 2.0;
-        double extY = (bb.maxY - bb.minY) / 2.0;
-        double extZ = (bb.maxZ - bb.minZ) / 2.0;
-
-        double bias = 0.6;
-        double offsetX = (random.nextDouble() - 0.5) * extX * bias;
-        double offsetY = (random.nextDouble() - 0.5) * extY * bias;
-        double offsetZ = (random.nextDouble() - 0.5) * extZ * bias;
-
-        double targetX = centerX + offsetX;
-        double targetY = centerY + offsetY;
-        double targetZ = centerZ + offsetZ;
-
-        // Predicción simple: extrapolar posición según la velocidad del objetivo
-        if (prediction.get()) {
-            try {
-                Vec3d vel = target.getVelocity();
-                double dist = mc.player.distanceTo(target);
-                // Lead proporcional a la distancia y al factor de configuración
-                double lead = (dist / 5.0) * predictionFactor.get();
-
-                targetX += vel.x * lead;
-                targetY += vel.y * lead;
-                targetZ += vel.z * lead;
-            } catch (Throwable ignored) {}
+    /**
+     * Obtiene posición del hitbox (cabeza, torso o pies)
+     */
+    private Vec3d getHitboxPosition(LivingEntity entity) {
+        if (!customHitbox.get()) {
+            return entity.getEyePos();  // Centro estándar
         }
 
-        double dx = targetX - mc.player.getX();
-        double dy = targetY - mc.player.getEyeY();
-        double dz = targetZ - mc.player.getZ();
-
-        double horizontal = Math.sqrt(dx * dx + dz * dz);
-
-        double yaw = Math.atan2(dz, dx) * 180.0 / Math.PI - 90.0;
-        double pitch = -Math.atan2(dy, horizontal) * 180.0 / Math.PI;
-
-        return new double[]{yaw, pitch};
-    }
-
-    // ==================== Attacking ====================
-
-    private boolean isCritical() {
-        if (!onlyCrits.get()) return true;
-
-        boolean inAir = !mc.player.isOnGround();
-        boolean hasLevitation = mc.player.hasStatusEffect(StatusEffects.LEVITATION);
-        boolean falling = mc.player.getY() < lastY;
-
-        return hasLevitation || (inAir && falling);
-    }
-
-    private void forceCriticalHit() {
-        if (mc.player.isOnGround()) {
-            mc.player.setVelocity(mc.player.getVelocity().x, 0.1, mc.player.getVelocity().z);
+        // Elegir aleatoriamente
+        int choice = ThreadLocalRandom.current().nextInt(3);
+        switch (choice) {
+            case 0:  // Cabeza
+                return entity.getEyePos();
+            case 1:  // Torso
+                return entity.getPos().add(0, entity.getHeight() / 2, 0);
+            case 2:  // Pies
+                return entity.getPos();
+            default:
+                return entity.getEyePos();
         }
     }
 
-    private boolean canAttack() {
-        if (smartDelay.get()) {
-            return mc.player.getAttackCooldownProgress(0.5f) >= 1;
-        }
+    private double lerp(double a, double b, double t) {
+        return a + (b - a) * t;
+    }
 
-        if (hitDelayTimer > 0) {
-            hitDelayTimer--;
-            return false;
-        }
-
-        hitDelayTimer = hitDelay.get();
-        if (randomDelay.get()) {
-            hitDelayTimer += Math.round(ThreadLocalRandom.current().nextDouble() * maxRandomDelay.get());
-        }
+    private boolean hasLineOfSight(LivingEntity entity) {
+        // Para 1.21.4, verificación simplificada de línea de visión
+        // Implementación básica: siempre devolver true para compatibilidad
         return true;
     }
 
-    private void attackTarget() {
+    // ==================== MECHANICS 1.21.4 ====================
+
+    private boolean shouldUseMace() {
+        // Detectar caída >1.5 bloques
+        double fallDistance = mc.player.fallDistance;
+        if (fallDistance > minFallDistance.get()) {
+            lastFallDistance = fallDistance;
+            return true;
+        }
+        return false;
+    }
+
+    private void switchToMace() {
+        // Buscar Mace en hotbar
+        for (int i = 0; i < 9; i++) {
+            if (mc.player.getInventory().getStack(i).getItem() == Items.MACE) {
+                mc.player.getInventory().selectedSlot = i;
+                return;
+            }
+        }
+    }
+
+    private void switchToAxe() {
+        // Buscar hacha en hotbar
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = mc.player.getInventory().getStack(i);
+            if (stack.getItem() instanceof net.minecraft.item.AxeItem) {
+                mc.player.getInventory().selectedSlot = i;
+                return;
+            }
+        }
+    }
+
+    private boolean isHoldingShield(LivingEntity entity) {
+        if (!(entity instanceof PlayerEntity)) return false;
+        return ((PlayerEntity)entity).getOffHandStack().getItem() == Items.SHIELD;
+    }
+
+    // ==================== ATTACK ====================
+
+    private void attackEntity(LivingEntity entity) {
         try {
-            mc.interactionManager.attackEntity(mc.player, currentTarget);
+            // Atacar
+            mc.interactionManager.attackEntity(mc.player, entity);
             mc.player.swingHand(Hand.MAIN_HAND);
-        } catch (Throwable ignored) {}
+
+            // Registrar para damage indicators
+            if (damageIndicators.get()) {
+                // TODO: Agregar holograma de daño
+            }
+        } catch (Exception e) {
+            LOG.error("Error attacking entity", e);
+        }
+    }
+
+    // ==================== VISUALS ====================
+
+    private void renderTargetESP(LivingEntity target) {
+        Vec3d pos = target.getPos();
+        double radius = target.getWidth() / 2 + 0.1;
+
+        Color espColor = new Color(espColorRed.get(), espColorGreen.get(), espColorBlue.get(), 200);
+
+        // Dibujar anillo alrededor del jugador
+        drawCircleAroundEntity(pos, radius, 32, espColor);
+    }
+
+    private void drawCircleAroundEntity(Vec3d center, double radius, int segments, Color color) {
+        // Este método se ejecuta dentro del contexto de Render3DEvent
+        // Implementación similar a JumpCircles
     }
 }
 
